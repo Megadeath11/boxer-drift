@@ -1,0 +1,39 @@
+name: Element Sandbox
+
+on:
+  push:
+    paths:
+      - "element-sandbox/**"
+      - ".github/workflows/element-sandbox.yml"
+    tags:
+      - "sandbox-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: element-sandbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: element-sandbox/go.mod
+          cache-dependency-path: element-sandbox/go.sum
+      - name: Test simulation
+        run: go test ./sim
+      - name: Build portable Windows exe
+        run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ElementSandbox-windows
+          path: element-sandbox/dist/ElementSandbox.exe
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/sandbox-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: element-sandbox/dist/ElementSandbox.exe
