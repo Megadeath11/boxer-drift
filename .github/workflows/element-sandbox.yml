@@ -25,7 +25,7 @@ jobs:
           go-version-file: element-sandbox/go.mod
           cache-dependency-path: element-sandbox/go.sum
       - name: Test simulation and levels
-        run: go test ./...
+        run: go test -timeout 20m ./...
       - name: Build portable Windows exe
         run: ./build.sh
       - uses: actions/upload-artifact@v4

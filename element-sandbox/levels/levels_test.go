@@ -77,6 +77,74 @@ var solutions = []func(s *sim.Sim) map[sim.Mat]int{
 		}
 		return map[sim.Mat]int{sim.Seed: n, sim.Coal: coal}
 	},
+	// 8. Second Wind: turbines on the left hill, a battery bank, one long wire
+	func(s *sim.Sim) map[sim.Mat]int {
+		tu := place(s, 64, 96, 72, 97, sim.Turbine)
+		cu := place(s, 66, 97, 67, 100, sim.Copper)
+		cu += place(s, 64, 95, 329, 96, sim.Copper)
+		cu += place(s, 148, 96, 149, 176, sim.Copper)
+		cu += place(s, 229, 96, 230, 104, sim.Copper)
+		cu += place(s, 328, 96, 329, 176, sim.Copper)
+		b := place(s, 238, 80, 253, 81, sim.Battery)
+		cu += place(s, 244, 81, 245, 96, sim.Copper)
+		return map[sim.Mat]int{sim.Turbine: tu, sim.Copper: cu, sim.Battery: b}
+	},
+	// 9. Deep Freeze: clear the snow, burn coal, Thermo Gen against the drift
+	func(s *sim.Sim) map[sim.Mat]int {
+		s.Fill(Sc(26), Sc(173), Sc(117), Sc(192), sim.Empty, false) // erase the snow
+		coal := place(s, 33, 178, 110, 192, sim.Coal)
+		tg := place(s, 115, 173, 116, 192, sim.ThermoGen)
+		cu := place(s, 120, 103, 121, 131, sim.Copper) // ties the pot, and the Thermo Gen under it, in
+		cu += place(s, 168, 100, 202, 103, sim.Copper)
+		cu += place(s, 248, 100, 282, 103, sim.Copper)
+		light(s, 34, 117, 177)
+		return map[sim.Mat]int{sim.Coal: coal, sim.ThermoGen: tg, sim.Copper: cu}
+	},
+	// 10. Flood Gate: two blasts through the dam, then bridge the wire
+	func(s *sim.Sim) map[sim.Mat]int {
+		s.Explode(Sc(104), Sc(81), 4) // a small bomb on top of the TNT gate
+		return map[sim.Mat]int{sim.Copper: place(s, 258, 90, 292, 93, sim.Copper)}
+	},
+	// 11. Eruption: copper overhead, platinum down into the lava pit
+	func(s *sim.Sim) map[sim.Mat]int {
+		cu := place(s, 98, 70, 233, 71, sim.Copper)
+		cu += place(s, 232, 71, 233, 140, sim.Copper)
+		pt := place(s, 232, 140, 233, 184, sim.Platinum)
+		return map[sim.Mat]int{sim.Copper: cu, sim.Platinum: pt}
+	},
+	// 12. The Grid: boiler + gold through the acid + hilltop turbines + batteries
+	func(s *sim.Sim) map[sim.Mat]int {
+		lead := 10 + 33
+		cu := place(s, lead, 60, lead+1, 80, sim.Copper)
+		cu += place(s, lead, 60, 160, 61, sim.Copper)
+		cu += place(s, 120, 61, 121, 176, sim.Copper)
+		cu += place(s, 159, 61, 160, 160, sim.Copper)
+		au := place(s, 159, 160, 160, 187, sim.Gold)
+		au += place(s, 159, 186, 190, 187, sim.Gold)
+		au += place(s, 189, 160, 190, 186, sim.Gold)
+		cu += place(s, 189, 150, 190, 160, sim.Copper)
+		cu += place(s, 189, 150, 260, 151, sim.Copper)
+		cu += place(s, 228, 151, 229, 176, sim.Copper)
+		cu += place(s, 259, 90, 260, 150, sim.Copper)
+		cu += place(s, 259, 90, 301, 91, sim.Copper)
+		tu := place(s, 298, 84, 302, 85, sim.Turbine)
+		cu += place(s, 300, 85, 301, 96, sim.Copper)
+		cu += place(s, 308, 100, 349, 101, sim.Copper)
+		cu += place(s, 348, 101, 349, 176, sim.Copper)
+		b := place(s, 266, 120, 274, 121, sim.Battery)
+		cu += place(s, 260, 120, 266, 121, sim.Copper)
+		return map[sim.Mat]int{sim.Copper: cu, sim.Gold: au, sim.Turbine: tu, sim.Battery: b}
+	},
+}
+
+// light holds a small flame along y from design x0 to x1, like a player would.
+func light(s *sim.Sim, x0, x1, y int) {
+	for x := x0; x < x1; x += 3 {
+		for k := 0; k < 8; k++ {
+			s.Ignite(Sc(x), Sc(y), 3)
+			s.Step()
+		}
+	}
 }
 
 // plant drops n seeds evenly between design x0 and x1, just above the dirt.
@@ -120,10 +188,10 @@ func TestEveryLevelHasASolution(t *testing.T) {
 			}
 			hold := 0
 			for f := 0; f < 60*60; f++ {
-				s.Step()
+				l.Step(s, f)
 				if l.Won(s) {
 					hold++
-					if hold >= HoldFrames {
+					if hold >= l.HoldTime() {
 						t.Logf("won after %.1f s (generating %.1f)", float64(f)/60, s.Stats.Generated)
 						return
 					}
@@ -140,7 +208,7 @@ func TestNoLevelWinsByItself(t *testing.T) {
 	for _, l := range All {
 		s := setup(l)
 		for f := 0; f < 900; f++ {
-			s.Step()
+			l.Step(s, f)
 			if l.Won(s) {
 				t.Fatalf("%s: beacons powered without the player doing anything", l.Name)
 			}
@@ -164,5 +232,70 @@ func TestGoldStandardNeedsGold(t *testing.T) {
 	}
 	if won > 60*20 {
 		t.Fatalf("an all-copper wire through acid still powers the beacon at %.0f s", float64(won)/60)
+	}
+}
+
+// held runs a level for up to secs seconds and reports whether its goal was
+// held long enough to win.
+func held(l Level, s *sim.Sim, secs int) bool {
+	hold := 0
+	for f := 0; f < 60*secs; f++ {
+		l.Step(s, f)
+		if l.Won(s) {
+			hold++
+			if hold >= l.HoldTime() {
+				return true
+			}
+		} else {
+			hold = 0
+		}
+	}
+	return false
+}
+
+func TestSecondWindNeedsBatteries(t *testing.T) {
+	l := All[7]
+	s := setup(l)
+	place(s, 64, 96, 72, 97, sim.Turbine)
+	place(s, 66, 97, 67, 100, sim.Copper)
+	place(s, 64, 95, 329, 96, sim.Copper)
+	place(s, 148, 96, 149, 176, sim.Copper)
+	place(s, 229, 96, 230, 104, sim.Copper)
+	place(s, 328, 96, 329, 176, sim.Copper)
+	if held(l, s, 40) {
+		t.Fatal("won without any batteries")
+	}
+}
+
+func TestEruptionMeltsCopper(t *testing.T) {
+	l := All[10]
+	s := setup(l)
+	place(s, 98, 70, 233, 71, sim.Copper)
+	place(s, 232, 71, 233, 184, sim.Copper)
+	if held(l, s, 60) {
+		t.Fatal("an all-copper wire survived the eruptions")
+	}
+}
+
+func TestFloodGateNeedsTheDamBlown(t *testing.T) {
+	l := All[9]
+	s := setup(l)
+	place(s, 258, 90, 292, 93, sim.Copper)
+	if held(l, s, 30) {
+		t.Fatal("won without letting the water in")
+	}
+}
+
+func TestTheGridNeedsBatteries(t *testing.T) {
+	l := All[11]
+	s := setup(l)
+	solutions[11](s)
+	for i := 0; i < sim.W*sim.H; i++ { // take the batteries back out
+		if c := &s.Cells[i]; c.M == sim.Battery {
+			s.Fill(i%sim.W, i/sim.W, i%sim.W+1, i/sim.W+1, sim.Empty, false)
+		}
+	}
+	if held(l, s, 40) {
+		t.Fatal("won without batteries")
 	}
 }

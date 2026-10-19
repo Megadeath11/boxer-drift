@@ -20,9 +20,11 @@ import (
 // ---- main menu ----
 
 const (
-	menuBtnW = 360
+	menuBtnW = 330 // one column; the levels sit in two columns
 	menuBtnH = 30
-	menuTop  = 230
+	menuGap  = 6
+	menuTop  = 210
+	menuWide = 2*menuBtnW + menuGap
 )
 
 type menuItem struct {
@@ -39,8 +41,21 @@ func (g *Game) menuItems() []menuItem {
 	return append(items, menuItem{label: "Quit", level: -2})
 }
 
-func menuBtnRect(k int) (x, y int) {
-	return screenW/2 - menuBtnW/2, menuTop + k*(menuBtnH+6)
+// menuBtnRect lays the menu out: Sandbox on a wide top row, the levels in
+// two columns below it, and Quit on a wide bottom row.
+func menuBtnRect(k int) (x, y, w int) {
+	left := screenW/2 - menuWide/2
+	n := len(levels.All)
+	rows := (n + 1) / 2
+	row := func(r int) int { return menuTop + r*(menuBtnH+menuGap) }
+	switch {
+	case k == 0:
+		return left, row(0), menuWide
+	case k > n:
+		return left, row(rows + 1), menuWide
+	}
+	l := k - 1
+	return left + (l/rows)*(menuBtnW+menuGap), row(1 + l%rows), menuBtnW
 }
 
 func (g *Game) updateMenu() error {
@@ -50,8 +65,8 @@ func (g *Game) updateMenu() error {
 	}
 	mx, my := ebiten.CursorPosition()
 	for k, it := range g.menuItems() {
-		x, y := menuBtnRect(k)
-		if mx < x || mx >= x+menuBtnW || my < y || my >= y+menuBtnH || it.locked {
+		x, y, w := menuBtnRect(k)
+		if mx < x || mx >= x+w || my < y || my >= y+menuBtnH || it.locked {
 			continue
 		}
 		switch it.level {
@@ -69,7 +84,9 @@ func (g *Game) updateMenu() error {
 func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.drawWorld(screen, g.demo, sim.ViewNormal, true)
 	vector.DrawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{8, 10, 14, 150}, false)
-	vector.DrawFilledRect(screen, float32(screenW/2-menuBtnW/2-30), 50, menuBtnW+60, float32(menuTop+len(g.menuItems())*(menuBtnH+6)-30), color.RGBA{10, 12, 18, 170}, false)
+	items := g.menuItems()
+	_, lastY, _ := menuBtnRect(len(items) - 1)
+	vector.DrawFilledRect(screen, float32(screenW/2-menuWide/2-30), 50, menuWide+60, float32(lastY+menuBtnH+30-50), color.RGBA{10, 12, 18, 170}, false)
 	op := &text.DrawOptions{}
 	op.GeoM.Scale(5, 5)
 	title := "ELEMENT SANDBOX"
@@ -82,14 +99,14 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.text(screen, sub, screenW/2-len(sub)*7/2, 170, colDim)
 
 	mx, my := ebiten.CursorPosition()
-	for k, it := range g.menuItems() {
-		x, y := menuBtnRect(k)
-		hover := mx >= x && mx < x+menuBtnW && my >= y && my < y+menuBtnH
+	for k, it := range items {
+		x, y, w := menuBtnRect(k)
+		hover := mx >= x && mx < x+w && my >= y && my < y+menuBtnH
 		bg := color.RGBA{30, 33, 44, 255}
 		if hover && !it.locked {
 			bg = color.RGBA{50, 55, 74, 255}
 		}
-		vector.DrawFilledRect(screen, float32(x), float32(y), menuBtnW, menuBtnH, bg, false)
+		vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), menuBtnH, bg, false)
 		tc := colText
 		label := it.label
 		switch {
@@ -100,7 +117,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 			label += "   [done]"
 		}
 		if hover && !it.locked {
-			vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, menuBtnW-1, menuBtnH-1, 1, colAccent, false)
+			vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, float32(w)-1, menuBtnH-1, 1, colAccent, false)
 		}
 		g.text(screen, label, x+14, y+9, tc)
 	}
@@ -127,6 +144,7 @@ func (g *Game) startLevel(k int) {
 	l := levels.All[k]
 	g.mode, g.level = modePlay, k
 	g.won, g.brief, g.hold, g.paused, g.help = false, true, 0, false, false
+	g.lframe = 0
 	g.resetCamera()
 	g.sim.Climate = sim.Climate{} // levels opt in to seasons in Build
 	g.sim.Ambient = sim.DefaultAmbient
@@ -177,7 +195,7 @@ func (g *Game) checkGoal() {
 	} else {
 		g.hold = 0
 	}
-	if g.hold >= levels.HoldFrames && !g.won {
+	if g.hold >= levelAt(g.level).HoldTime() && !g.won {
 		g.won, g.wonT = true, 0
 		if g.level+1 > g.unlocked {
 			g.unlocked = g.level + 1
@@ -207,14 +225,15 @@ func (g *Game) drawLevelHUD(screen *ebiten.Image) {
 	}
 	bw := float32(284)
 	vector.DrawFilledRect(screen, x+8, y+51+extra, bw, 5, color.RGBA{40, 44, 56, 255}, false)
-	vector.DrawFilledRect(screen, x+8, y+51+extra, bw*float32(g.hold)/levels.HoldFrames, 5, color.RGBA{90, 255, 140, 255}, false)
+	vector.DrawFilledRect(screen, x+8, y+51+extra, bw*min(1, float32(g.hold)/float32(l.HoldTime())), 5, color.RGBA{90, 255, 140, 255}, false)
 
 	switch {
 	case g.brief:
 		lines := append([]string{l.Name, ""}, l.Brief...)
-		goal := "Goal: keep every beacon powered for 3 seconds."
+		secs := l.HoldTime() / 60
+		goal := fmt.Sprintf("Goal: keep every beacon powered for %d seconds.", secs)
 		if l.MaxPPM > 0 {
-			goal = fmt.Sprintf("Goal: beacons on and CO2 <= %.0f ppm for 3 seconds.", l.MaxPPM)
+			goal = fmt.Sprintf("Goal: beacons on and CO2 <= %.0f ppm for %d seconds.", l.MaxPPM, secs)
 		}
 		lines = append(lines, "", goal,
 			"R restarts, Esc for menu, H for controls.", "", "Click or press Enter to start.")

@@ -478,6 +478,9 @@ func (s *Sim) burn(x, y, i int) bool {
 			quench = true
 		}
 	}
+	if info.Explosive > 0 {
+		air, quench = true, false // explosives carry their own oxidiser
+	}
 	if (quench && s.chance(0.15)) || (!air && s.chance(0.03)) {
 		c.Flags &^= fBurning
 		return false
@@ -667,6 +670,11 @@ func (s *Sim) canDisplace(src Mat, j, dy int) bool {
 				return s.chance(0.35)
 			}
 			return s.chance(0.6 * (1 - di.Viscosity*0.5))
+		}
+	case SPowder:
+		// a liquid pushes through a much lighter powder, which floats up
+		if si.State == SLiquid && dy >= 0 && di.Density*2 < si.Density && s.Cells[j].Flags&fFixed == 0 {
+			return s.chance(0.3)
 		}
 	}
 	return false

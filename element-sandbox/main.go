@@ -104,6 +104,7 @@ type Game struct {
 	mode     screenMode
 	level    int // index into levels.All, or -1 for sandbox
 	hold     int // frames every beacon has been powered
+	lframe   int // frames since the level started (drives scripted events)
 	won      bool
 	wonT     int  // frames since the level was won
 	brief    bool // showing the level briefing
@@ -338,9 +339,12 @@ func (g *Game) Update() error {
 	}
 
 	if !g.paused || inpututil.IsKeyJustPressed(ebiten.KeyN) {
-		g.sim.Step()
 		if g.level >= 0 {
+			levelAt(g.level).Step(g.sim, g.lframe)
+			g.lframe++
 			g.checkGoal()
+		} else {
+			g.sim.Step()
 		}
 	}
 	return nil
@@ -569,7 +573,7 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 	vector.DrawFilledRect(screen, simW, 0, sideW, screenH, colPanel, false)
 	title := "ELEMENT SANDBOX"
 	if g.level >= 0 {
-		title = "LEVEL " + levels.All[g.level].Name[:1]
+		title = fmt.Sprintf("LEVEL %d", g.level+1)
 	}
 	g.text(screen, title, simW+8, 5, colAccent)
 	list := screen.SubImage(image.Rect(simW, listTop, screenW, listBot)).(*ebiten.Image)

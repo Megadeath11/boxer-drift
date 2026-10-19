@@ -57,7 +57,7 @@ It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put
 
 ## Levels
 
-Pick a level from the main menu. Each one gives you a few materials in limited amounts, shown as the numbers on the palette buttons. Erasing your own material refunds it. To win, keep every beacon powered for 3 seconds. Your progress is saved in `ElementSandbox-progress.txt` next to the exe.
+Pick a level from the main menu. Each one gives you a few materials in limited amounts, shown as the numbers on the palette buttons. Erasing your own material refunds it. To win, keep every beacon powered for 3 seconds (the later levels ask for longer, so you have to ride out what they throw at you). Your progress is saved in `ElementSandbox-progress.txt` next to the exe.
 
 1. **First Spark**: light coal under a pot of water. The steam spins the turbine lid, and you bridge the gap in the wire.
 2. **Long Haul**: a boiler heated by a volcanic vent. Run a limited amount of copper to two beacons.
@@ -66,6 +66,11 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 5. **Wind Farm**: strong wind but sheltered valleys. Put a limited number of turbines up high.
 6. **Clean Air**: the power is on, but the valley is full of smog. Plant a forest to bring CO2 under 500 ppm.
 7. **Coal Country**: only coal can boil this pot. Keep the beacon lit and the air under 500 ppm, so plant trees before you light the fire.
+8. **Second Wind**: the wind blows in gusts with dead calm in between. Charge a battery bank while it blows so three beacons stay lit for 20 seconds.
+9. **Deep Freeze**: midwinter. The boiler is frozen solid and its firebox is full of snow. Coal alone struggles in the cold, so put the cold to work too: a Thermo Gen between the fire and a snowdrift.
+10. **Flood Gate**: a dry boiler on a volcanic vent and a reservoir behind a stone dam. No eraser: blow the dam with the Bomb so the water runs down the chute into the pot.
+11. **Eruption**: the beacon sits in a pit at the foot of an erupting volcano. Lava melts copper, so the wire into the pit has to be platinum or titanium. Hold for 25 seconds.
+12. **The Grid**: four beacons, a boiler that can't run them all, an acid trench, a windy hill and gusts. Everything you've learned at once.
 
 ## Electricity
 

@@ -237,15 +237,30 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 	avail := gen
 	if gen < demand {
 		need := demand - gen
-		for _, m := range s.members {
-			c := &s.Cells[m]
-			if mats[c.M].Device != DevBattery || c.Life <= 0 || need <= 0 {
-				continue
+		// draw evenly from every charged battery, so a bank keeps its full
+		// output until it is nearly flat (a few passes mop up cells that run dry)
+		for pass := 0; pass < 3 && need > 0.001; pass++ {
+			n := 0
+			for _, m := range s.members {
+				c := &s.Cells[m]
+				if mats[c.M].Device == DevBattery && c.Life > 0 {
+					n++
+				}
 			}
-			take := min(float32(c.Life), batteryDischarge, need)
-			c.Life -= int16(math.Ceil(float64(take)))
-			need -= take
-			avail += take
+			if n == 0 {
+				break
+			}
+			share := need / float32(n)
+			for _, m := range s.members {
+				c := &s.Cells[m]
+				if mats[c.M].Device != DevBattery || c.Life <= 0 || need <= 0 {
+					continue
+				}
+				take := min(float32(c.Life), batteryDischarge, share, need)
+				c.Life -= s.roundRandom(take)
+				need -= take
+				avail += take
+			}
 		}
 	}
 	// run consumers in order until the power runs out
@@ -287,7 +302,7 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 			continue
 		}
 		add := min(spare, batteryCharge, float32(batteryCap-c.Life))
-		c.Life += int16(add + 0.5)
+		c.Life += s.roundRandom(add)
 		spare -= add
 	}
 	if used > 0 {
@@ -303,4 +318,14 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 	st.Generated += gen
 	st.Used += used
 	st.Stored += stored
+}
+
+// roundRandom rounds v up or down at random in proportion to its fraction,
+// so small charges and drains add up correctly on average.
+func (s *Sim) roundRandom(v float32) int16 {
+	f := float32(math.Floor(float64(v)))
+	if s.rf() < v-f {
+		f++
+	}
+	return int16(f)
 }

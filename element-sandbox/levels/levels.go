@@ -32,6 +32,28 @@ type Level struct {
 	// MaxPPM, if set, is the CO2 level the air must be at or below (while
 	// every beacon is powered) to win.
 	MaxPPM float32
+	// Hold, if set, is how many frames the goal must be held (default
+	// HoldFrames). Longer holds make the player ride out timed events.
+	Hold int
+	// Tick, if set, runs scripted events (gusts, eruptions...) before each
+	// simulation step; frame counts from 0 when the level starts.
+	Tick func(s *sim.Sim, frame int)
+}
+
+// HoldTime is how many frames the goal must be held to win.
+func (l *Level) HoldTime() int {
+	if l.Hold > 0 {
+		return l.Hold
+	}
+	return HoldFrames
+}
+
+// Step runs the level's scripted events for this frame, then the simulation.
+func (l *Level) Step(s *sim.Sim, frame int) {
+	if l.Tick != nil {
+		l.Tick(s, frame)
+	}
+	s.Step()
 }
 
 // Won reports whether the level's goal is currently met.
