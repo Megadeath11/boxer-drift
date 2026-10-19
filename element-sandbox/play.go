@@ -28,51 +28,68 @@ const (
 )
 
 type menuItem struct {
-	label  string
-	level  int // -1 sandbox, -2 quit
-	locked bool
+	label   string
+	level   int // -1 sandbox, -2 quit, -3 resume
+	locked  bool
+	x, y, w int
 }
 
+const (
+	itemSandbox = -1
+	itemQuit    = -2
+	itemResume  = -3
+)
+
+// menuItems lays the menu out: Resume (when a game is in progress) and
+// Sandbox on wide rows, the levels in two columns, and Quit at the bottom.
 func (g *Game) menuItems() []menuItem {
-	items := []menuItem{{label: "Sandbox  (free play, every material)", level: -1}}
-	for k, l := range levels.All {
-		items = append(items, menuItem{label: l.Name, level: k, locked: k > g.unlocked})
-	}
-	return append(items, menuItem{label: "Quit", level: -2})
-}
-
-// menuBtnRect lays the menu out: Sandbox on a wide top row, the levels in
-// two columns below it, and Quit on a wide bottom row.
-func menuBtnRect(k int) (x, y, w int) {
 	left := screenW/2 - menuWide/2
-	n := len(levels.All)
-	rows := (n + 1) / 2
-	row := func(r int) int { return menuTop + r*(menuBtnH+menuGap) }
-	switch {
-	case k == 0:
-		return left, row(0), menuWide
-	case k > n:
-		return left, row(rows + 1), menuWide
+	row := 0
+	y := func() int { return menuTop + row*(menuBtnH+menuGap) }
+	var items []menuItem
+	wide := func(label string, level int) {
+		items = append(items, menuItem{label: label, level: level, x: left, y: y(), w: menuWide})
+		row++
 	}
-	l := k - 1
-	return left + (l/rows)*(menuBtnW+menuGap), row(1 + l%rows), menuBtnW
+	if g.inGame {
+		name := "Sandbox"
+		if g.level >= 0 {
+			name = levels.All[g.level].Name
+		}
+		wide("Resume  ("+name+")", itemResume)
+	}
+	wide("Sandbox  (free play, every material)", itemSandbox)
+	rows := (len(levels.All) + 1) / 2
+	for k, l := range levels.All {
+		col, r := k/rows, k%rows
+		items = append(items, menuItem{label: l.Name, level: k, locked: k > g.unlocked,
+			x: left + col*(menuBtnW+menuGap), y: menuTop + (row+r)*(menuBtnH+menuGap), w: menuBtnW})
+	}
+	row += rows
+	wide("Quit", itemQuit)
+	return items
 }
 
 func (g *Game) updateMenu() error {
 	stepDemo(g.demo)
+	if g.inGame && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.mode, g.waitRelease = modePlay, true
+		return nil
+	}
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return nil
 	}
 	mx, my := ebiten.CursorPosition()
-	for k, it := range g.menuItems() {
-		x, y, w := menuBtnRect(k)
-		if mx < x || mx >= x+w || my < y || my >= y+menuBtnH || it.locked {
+	for _, it := range g.menuItems() {
+		if mx < it.x || mx >= it.x+it.w || my < it.y || my >= it.y+menuBtnH || it.locked {
 			continue
 		}
 		switch it.level {
-		case -2:
+		case itemQuit:
 			return ebiten.Termination
-		case -1:
+		case itemResume:
+			g.mode, g.waitRelease = modePlay, true
+		case itemSandbox:
 			g.startSandbox()
 		default:
 			g.startLevel(it.level)
@@ -85,7 +102,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.drawWorld(screen, g.demo, sim.ViewNormal, true)
 	vector.DrawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{8, 10, 14, 150}, false)
 	items := g.menuItems()
-	_, lastY, _ := menuBtnRect(len(items) - 1)
+	lastY := items[len(items)-1].y
 	vector.DrawFilledRect(screen, float32(screenW/2-menuWide/2-30), 50, menuWide+60, float32(lastY+menuBtnH+30-50), color.RGBA{10, 12, 18, 170}, false)
 	op := &text.DrawOptions{}
 	op.GeoM.Scale(5, 5)
@@ -99,8 +116,8 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.text(screen, sub, screenW/2-len(sub)*7/2, 170, colDim)
 
 	mx, my := ebiten.CursorPosition()
-	for k, it := range items {
-		x, y, w := menuBtnRect(k)
+	for _, it := range items {
+		x, y, w := it.x, it.y, it.w
 		hover := mx >= x && mx < x+w && my >= y && my < y+menuBtnH
 		bg := color.RGBA{30, 33, 44, 255}
 		if hover && !it.locked {
@@ -121,18 +138,23 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		}
 		g.text(screen, label, x+14, y+9, tc)
 	}
-	g.text(screen, "F11 fullscreen   Esc in game returns here", 12, screenH-20, colDim)
+	hint := "F11 fullscreen   Esc in game returns here"
+	if g.inGame {
+		hint += "   Esc here resumes"
+	}
+	g.text(screen, hint, 12, screenH-20, colDim)
 }
 
 // ---- starting modes ----
 
 func (g *Game) startSandbox() {
-	g.mode, g.level = modePlay, -1
+	g.mode, g.level, g.inGame = modePlay, -1, true
 	g.won, g.brief, g.hold, g.paused = false, false, 0, false
 	g.help = true
 	g.resetCamera()
 	g.sim.Climate = sim.Climate{Enabled: true, Weather: true, YearFrames: sandboxYear}
 	g.sim.Climate.SetSeason(sim.Spring)
+	g.sim.Climate.Phase += 0.125 // mid-spring: mild, not the tail of winter
 	g.sim.Clear()
 	g.sim.Wind.Global = 0
 	g.sim.AddRoof(roofCells)
@@ -142,7 +164,8 @@ func (g *Game) startSandbox() {
 
 func (g *Game) startLevel(k int) {
 	l := levels.All[k]
-	g.mode, g.level = modePlay, k
+	g.mode, g.level, g.inGame = modePlay, k, true
+	g.placed = [sim.NumMats]int{}
 	g.won, g.brief, g.hold, g.paused, g.help = false, true, 0, false, false
 	g.lframe = 0
 	g.resetCamera()

@@ -130,9 +130,9 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 | `O` | Roof on / off |
 | `K` / `L` | Next season / lock the season |
 | `J` / `P` | Seasons on / off, weather on / off |
-| `C` | Clear (sandbox) |
+| `C` twice | Clear everything (sandbox) |
 | `R` | Restart level |
-| `Esc` | Main menu |
+| `Esc` | Main menu (Esc again, or Resume, goes back to your game) |
 | `F11` | Fullscreen |
 | `H` / `F1` | Help |
 

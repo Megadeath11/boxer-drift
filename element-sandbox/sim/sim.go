@@ -58,6 +58,7 @@ type Sim struct {
 	glow      []float32
 	glowTmp   []float32
 	blob      []int32
+	beaconAt  []int32 // every beacon cell, gathered by power()
 	blobDone  []uint32
 	blobOn    []bool
 	blobMark  uint32
@@ -596,7 +597,11 @@ func (s *Sim) Explode(cx, cy int, power float32) {
 				continue
 			}
 			info := &mats[c.M]
-			c.T += 1400 * f
+			// a blast heats things toward its fireball temperature; it doesn't
+			// stack, so a chain of charges can't cook the world to 10,000 °C
+			if hot := s.Ambient + 1400*f; c.T < hot {
+				c.T = hot
+			}
 			if info.Explosive > 0 && c.Flags&fBurning == 0 && !(dx == 0 && dy == 0) {
 				// chain reaction, slightly delayed so it ripples outward
 				c.Flags |= fBurning
@@ -1040,10 +1045,15 @@ func (s *Sim) heatRows(y0, y1 int, relax bool) {
 			}
 			if a.T < -273 {
 				a.T = -273
+			} else if a.T > maxT {
+				a.T = maxT
 			}
 		}
 	}
 }
+
+// maxT is the hottest anything gets (the Heat tool's limit too).
+const maxT = 6000
 
 func harm(a, b float32) float32 {
 	if a <= 0 || b <= 0 {

@@ -54,6 +54,7 @@ type entry struct {
 	col   color.RGBA
 	desc  string
 	x, y  int // y is relative to the top of the scrolling list
+	w     int // button width
 	// budget is how many more cells may be placed in a level (-1 = unlimited)
 	budget int
 }
@@ -109,6 +110,11 @@ type Game struct {
 	wonT     int  // frames since the level was won
 	brief    bool // showing the level briefing
 	unlocked int  // levels the player may pick
+	inGame   bool // a sandbox or level is in progress (the menu offers Resume)
+	// placed counts cells of each budgeted material the player has placed,
+	// so erasing refunds only the player's own material
+	placed    [sim.NumMats]int
+	clearAskT int // frames left to confirm clearing the sandbox
 	// waitRelease ignores the mouse until the click that closed a menu or
 	// overlay is released, so it doesn't also paint
 	waitRelease bool
@@ -145,7 +151,21 @@ var groupOrder = []string{sim.GroupSolids, sim.GroupMetals, sim.GroupPower, sim.
 
 func matEntry(m sim.Mat, budget int) entry {
 	info := sim.Info(m)
-	return entry{label: info.Name, tool: toolMat, mat: m, col: info.Color, desc: info.Desc, budget: budget}
+	return entry{label: buttonLabel(info), tool: toolMat, mat: m, col: info.Color, desc: info.Desc, budget: budget}
+}
+
+// buttonLabel shortens names that don't fit on a palette button; the full
+// name still shows in the description panel.
+func buttonLabel(info *sim.MatInfo) string {
+	switch {
+	case info.Group == sim.GroupMolten: // the header already says molten
+		return strings.TrimPrefix(info.Name, "Molten ")
+	case info.Name == "Molten Glass":
+		return "Hot Glass"
+	case info.Name == "Fallen Leaves":
+		return "Dead Leaves"
+	}
+	return info.Name
 }
 
 // buildPalette lays out the sidebar: everything in the sandbox, or only what
@@ -153,6 +173,12 @@ func matEntry(m sim.Mat, budget int) entry {
 func (g *Game) buildPalette(allow []levels.Allow) {
 	g.entries, g.headers, g.scroll = nil, nil, 0
 	y := 0
+	// a level offers a handful of things: give each a full-width button so
+	// its name and remaining budget both fit
+	cols := 2
+	if allow != nil {
+		cols = 1
+	}
 	addGroup := func(name string, items []entry) {
 		if len(items) == 0 {
 			return
@@ -160,11 +186,12 @@ func (g *Game) buildPalette(allow []levels.Allow) {
 		g.headers = append(g.headers, header{name, y})
 		y += 14
 		for k, e := range items {
-			e.x = simW + 2 + (k%2)*(btnW+1)
-			e.y = y + (k/2)*(btnH+1)
+			e.w = btnW*(3-cols) + (2 - cols)
+			e.x = simW + 2 + (k%cols)*(btnW+1)
+			e.y = y + (k/cols)*(btnH+1)
 			g.entries = append(g.entries, e)
 		}
-		y += (len(items)+1)/2*(btnH+1) + 4
+		y += (len(items)+cols-1)/cols*(btnH+1) + 4
 	}
 	var tools []entry
 	byGroup := map[string][]entry{}
@@ -271,8 +298,21 @@ func (g *Game) Update() error {
 				g.say("Weather off")
 			}
 		}
+		if g.clearAskT > 0 {
+			g.clearAskT--
+		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyC) {
-			g.sim.Clear()
+			if g.clearAskT == 0 {
+				g.clearAskT = 150
+				g.say("Press C again to clear everything")
+			} else {
+				roof := !g.sim.OpenTop
+				g.sim.Clear()
+				if roof {
+					g.sim.AddRoof(roofCells)
+				}
+				g.clearAskT, g.toastT = 0, 0
+			}
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
 			g.sim.Wind.Global = float32(math.Min(float64(g.sim.Wind.Global+0.5), 5))
@@ -317,7 +357,7 @@ func (g *Game) Update() error {
 	}
 
 	left := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-	right := ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)
+	right := ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight) && g.canErase()
 	if g.waitRelease {
 		g.waitRelease = left || right
 		left, right = false, false
@@ -350,6 +390,17 @@ func (g *Game) Update() error {
 	return nil
 }
 
+// canErase reports whether the eraser is available (some levels withhold it,
+// and right-click erasing mustn't sneak around that).
+func (g *Game) canErase() bool {
+	for _, e := range g.entries {
+		if e.tool == toolErase {
+			return true
+		}
+	}
+	return false
+}
+
 // entryAt returns the palette entry under the mouse, or -1.
 func (g *Game) entryAt(mx, my int) int {
 	if mx < simW || my < listTop || my >= listBot {
@@ -357,7 +408,7 @@ func (g *Game) entryAt(mx, my int) int {
 	}
 	for k, e := range g.entries {
 		y := listTop + e.y - g.scroll
-		if mx >= e.x && mx < e.x+btnW && my >= y && my < y+btnH {
+		if mx >= e.x && mx < e.x+e.w && my >= y && my < y+btnH {
 			return k
 		}
 	}
@@ -395,6 +446,7 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 			if e.budget >= 0 {
 				g.entries[g.sel].budget -= placed
 				e.budget -= placed
+				g.placed[e.mat] += placed
 			}
 		case toolFire:
 			g.sim.Ignite(x, y, r)
@@ -406,12 +458,15 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 	}
 }
 
-// refund gives budget back for erased cells of limited materials.
+// refund gives budget back for erased cells of limited materials, but never
+// more than the player placed (cooled lava doesn't become free stone).
 func (g *Game) refund(removed [sim.NumMats]int) {
 	for k := range g.entries {
 		e := &g.entries[k]
 		if e.tool == toolMat && e.budget >= 0 {
-			e.budget += removed[e.mat]
+			n := min(removed[e.mat], g.placed[e.mat])
+			e.budget += n
+			g.placed[e.mat] -= n
 		}
 	}
 }
@@ -591,23 +646,23 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 		if k == hover {
 			bg = color.RGBA{52, 56, 72, 255}
 		}
-		vector.DrawFilledRect(list, x, y, btnW, btnH, bg, false)
+		vector.DrawFilledRect(list, x, y, float32(e.w), btnH, bg, false)
 		vector.DrawFilledRect(list, x+2, y+3, 9, 9, e.col, false)
 		tc := colText
 		if e.budget == 0 {
 			tc = colDim
 		}
 		if k == g.sel {
-			vector.StrokeRect(list, x+0.5, y+0.5, btnW-1, btnH-1, 1, colAccent, false)
+			vector.StrokeRect(list, x+0.5, y+0.5, float32(e.w)-1, btnH-1, 1, colAccent, false)
 			tc = colAccent
 		}
 		label := e.label
 		if e.budget >= 0 {
 			n := fmt.Sprint(e.budget)
-			if len(label) > 12-len(n) {
-				label = label[:max(1, 12-len(n))]
+			if fit := (e.w - 21 - len(n)*7) / 7; len(label) > fit {
+				label = label[:max(1, fit)]
 			}
-			g.text(list, n, e.x+btnW-3-len(n)*7, ey+1, colDim)
+			g.text(list, n, e.x+e.w-3-len(n)*7, ey+1, colDim)
 		}
 		g.text(list, label, e.x+14, ey+1, tc)
 	}
@@ -625,7 +680,11 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 		return
 	}
 	y := listBot + 6
-	g.text(screen, g.entries[show].label, simW+6, y, colAccent)
+	name := g.entries[show].label
+	if g.entries[show].tool == toolMat {
+		name = sim.Info(g.entries[show].mat).Name
+	}
+	g.text(screen, name, simW+6, y, colAccent)
 	for _, line := range wrap(g.entries[show].desc, 26) {
 		y += 13
 		if y > screenH-14 {
@@ -647,18 +706,21 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 	if g.paused {
 		state = "PAUSED (N = step)"
 	}
-	roof := "on"
-	if g.sim.OpenTop {
-		roof = "off"
+	roof := ""
+	if g.level < 0 { // only the sandbox lets you change it
+		roof = " | Roof on"
+		if g.sim.OpenTop {
+			roof = " | Roof off"
+		}
 	}
 	st := g.sim.Stats
-	s := fmt.Sprintf("%s | Brush %d | Zoom %.1fx | Wind %s | Roof %s | Power %.0f/%.0f | H help | %.0f FPS",
+	s := fmt.Sprintf("%s | Brush %d | Zoom %.1fx | Wind %s%s | Power %.0f/%.0f | H help | %.0f FPS",
 		state, g.brush, g.zoom, wind, roof, st.Used, st.Generated, ebiten.ActualFPS())
 	g.text(screen, s, 8, simH+7, colText)
 	if mx >= 0 && mx < simW && my >= 0 && my < simH {
 		cx, cy := g.toCell(mx, my)
 		c := g.sim.At(cx, cy)
-		cell := fmt.Sprintf("%s  %.0f C", sim.Info(c.M).Name, c.T)
+		cell := fmt.Sprintf("%s  %s", sim.Info(c.M).Name, degrees(c.T))
 		g.text(screen, cell, simW-len(cell)*7-8, simH+7, colAccent)
 	}
 }
@@ -676,7 +738,7 @@ var helpLines = []string{
 	"Left / Right     global wind  (Down = calm)",
 	"Space            pause    N  single step",
 	"T  heat view     V  show air flow",
-	"O  roof on/off   C  clear everything",
+	"O  roof on/off   C twice  clear everything",
 	"K  next season   L  lock season",
 	"J  seasons on/off   P  weather on/off",
 	"R  restart level    Esc  main menu",
@@ -738,4 +800,13 @@ func main() {
 	if err := ebiten.RunGame(newGame()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// degrees formats a temperature, never as "-0 C".
+func degrees(t float32) string {
+	r := math.Round(float64(t))
+	if r == 0 {
+		r = 0 // drops the sign of -0
+	}
+	return fmt.Sprintf("%.0f C", r)
 }

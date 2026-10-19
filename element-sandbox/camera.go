@@ -113,7 +113,7 @@ func (g *Game) drawClimate(screen *ebiten.Image) {
 			season += " (locked)"
 		}
 	}
-	g.text(screen, fmt.Sprintf("%s  %.0f C", season, g.sim.Ambient), int(x)+8, int(y)+5, colText)
+	g.text(screen, fmt.Sprintf("%s  %s", season, degrees(g.sim.Ambient)), int(x)+8, int(y)+5, colText)
 	if cl.Enabled { // year dial
 		for k := 0; k < 4; k++ {
 			c := []color.RGBA{{120, 200, 90, 255}, {240, 200, 60, 255}, {220, 120, 40, 255}, {170, 200, 240, 255}}[k]

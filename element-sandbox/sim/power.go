@@ -93,7 +93,7 @@ func (s *Sim) power() {
 		s.visitMark = 1
 	}
 	st := PowerStats{}
-	beacons := false
+	s.beaconAt = s.beaconAt[:0]
 	co2, smoke, leaves := 0, 0, 0
 	s.co2Sample = s.co2Sample[:0]
 	for i := range s.Cells {
@@ -101,7 +101,7 @@ func (s *Sim) power() {
 		c.Flags &^= fPowered
 		switch c.M {
 		case Beacon:
-			beacons = true
+			s.beaconAt = append(s.beaconAt, int32(i))
 		case CO2:
 			co2++
 			// reservoir-sample some CO2 cells for the forest to breathe in
@@ -118,7 +118,7 @@ func (s *Sim) power() {
 	}
 	s.Climate.CO2Cells, s.Climate.SmokeCells, s.Climate.Leaves = co2, smoke, leaves
 	s.breathe(leaves)
-	if beacons {
+	if len(s.beaconAt) > 0 {
 		st.Beacons = s.labelBeacons()
 	}
 	s.blobMark++
@@ -162,22 +162,22 @@ func (s *Sim) power() {
 
 // labelBeacons gives each connected beacon its own id (in s.blob) and
 // returns how many beacons there are. A beacon is one object however many
-// pixels it covers.
+// pixels it covers. Only beacon cells' entries in s.blob are meaningful.
 func (s *Sim) labelBeacons() int {
 	if len(s.blob) != len(s.Cells) {
 		s.blob = make([]int32, len(s.Cells))
 	}
-	for i := range s.blob {
+	for _, i := range s.beaconAt {
 		s.blob[i] = -1
 	}
 	n := 0
 	var stack []int32
-	for seed := range s.Cells {
-		if s.blob[seed] >= 0 || mats[s.Cells[seed].M].Device != DevBeacon {
+	for _, seed := range s.beaconAt {
+		if s.blob[seed] >= 0 {
 			continue
 		}
 		s.blob[seed] = int32(n)
-		stack = append(stack[:0], int32(seed))
+		stack = append(stack[:0], seed)
 		for len(stack) > 0 {
 			i := int(stack[len(stack)-1])
 			stack = stack[:len(stack)-1]
@@ -188,7 +188,7 @@ func (s *Sim) labelBeacons() int {
 					continue
 				}
 				j := ny*W + nx
-				if s.blob[j] < 0 && mats[s.Cells[j].M].Device == DevBeacon {
+				if mats[s.Cells[j].M].Device == DevBeacon && s.blob[j] < 0 {
 					s.blob[j] = int32(n)
 					stack = append(stack, int32(j))
 				}

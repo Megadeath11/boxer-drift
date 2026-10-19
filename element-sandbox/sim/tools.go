@@ -80,8 +80,8 @@ func (s *Sim) AddHeat(cx, cy, r int, dT float32) {
 		if c.T < -273 {
 			c.T = -273
 		}
-		if c.T > 6000 {
-			c.T = 6000
+		if c.T > maxT {
+			c.T = maxT
 		}
 	})
 }
