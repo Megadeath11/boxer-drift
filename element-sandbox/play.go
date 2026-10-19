@@ -113,9 +113,12 @@ func (g *Game) startSandbox() {
 	g.mode, g.level = modePlay, -1
 	g.won, g.brief, g.hold, g.paused = false, false, 0, false
 	g.help = true
+	g.resetCamera()
+	g.sim.Climate = sim.Climate{Enabled: true, Weather: true, YearFrames: sandboxYear}
+	g.sim.Climate.SetSeason(sim.Spring)
 	g.sim.Clear()
 	g.sim.Wind.Global = 0
-	g.sim.OpenTop = true
+	g.sim.AddRoof(roofCells)
 	g.buildPalette(nil)
 	g.waitRelease = true
 }
@@ -124,6 +127,9 @@ func (g *Game) startLevel(k int) {
 	l := levels.All[k]
 	g.mode, g.level = modePlay, k
 	g.won, g.brief, g.hold, g.paused, g.help = false, true, 0, false, false
+	g.resetCamera()
+	g.sim.Climate = sim.Climate{} // levels opt in to seasons in Build
+	g.sim.Ambient = sim.DefaultAmbient
 	g.sim.Clear()
 	g.sim.Wind.Global = l.Wind
 	g.sim.OpenTop = l.OpenTop
@@ -166,8 +172,7 @@ func (g *Game) updateLevelOverlays() bool {
 }
 
 func (g *Game) checkGoal() {
-	st := g.sim.Stats
-	if st.Beacons > 0 && st.BeaconOn == st.Beacons {
+	if levelAt(g.level).Won(g.sim) {
 		g.hold++
 	} else {
 		g.hold = 0
@@ -185,18 +190,33 @@ func (g *Game) drawLevelHUD(screen *ebiten.Image) {
 	l := levels.All[g.level]
 	st := g.sim.Stats
 	x, y := float32(8), float32(8)
-	vector.DrawFilledRect(screen, x, y, 300, 62, color.RGBA{10, 12, 18, 200}, false)
+	extra := float32(0)
+	if l.MaxPPM > 0 {
+		extra = 14
+	}
+	vector.DrawFilledRect(screen, x, y, 300, 62+extra, color.RGBA{10, 12, 18, 200}, false)
 	g.text(screen, l.Name, int(x)+8, int(y)+5, colAccent)
 	g.text(screen, fmt.Sprintf("Beacons powered: %d / %d", st.BeaconOn, st.Beacons), int(x)+8, int(y)+21, colText)
 	g.text(screen, fmt.Sprintf("Power: making %.1f, using %.1f", st.Generated, st.Used), int(x)+8, int(y)+35, colDim)
+	if l.MaxPPM > 0 {
+		c := color.RGBA{110, 220, 120, 255}
+		if g.sim.Climate.PPM > l.MaxPPM {
+			c = color.RGBA{255, 140, 70, 255}
+		}
+		g.text(screen, fmt.Sprintf("CO2: %.0f ppm (goal: %.0f or less)", g.sim.Climate.PPM, l.MaxPPM), int(x)+8, int(y)+49, c)
+	}
 	bw := float32(284)
-	vector.DrawFilledRect(screen, x+8, y+51, bw, 5, color.RGBA{40, 44, 56, 255}, false)
-	vector.DrawFilledRect(screen, x+8, y+51, bw*float32(g.hold)/levels.HoldFrames, 5, color.RGBA{90, 255, 140, 255}, false)
+	vector.DrawFilledRect(screen, x+8, y+51+extra, bw, 5, color.RGBA{40, 44, 56, 255}, false)
+	vector.DrawFilledRect(screen, x+8, y+51+extra, bw*float32(g.hold)/levels.HoldFrames, 5, color.RGBA{90, 255, 140, 255}, false)
 
 	switch {
 	case g.brief:
 		lines := append([]string{l.Name, ""}, l.Brief...)
-		lines = append(lines, "", "Goal: keep every beacon powered for 3 seconds.",
+		goal := "Goal: keep every beacon powered for 3 seconds."
+		if l.MaxPPM > 0 {
+			goal = fmt.Sprintf("Goal: beacons on and CO2 <= %.0f ppm for 3 seconds.", l.MaxPPM)
+		}
+		lines = append(lines, "", goal,
 			"R restarts, Esc for menu, H for controls.", "", "Click or press Enter to start.")
 		g.drawPanel(screen, lines, colAccent)
 	case g.won:
@@ -258,3 +278,10 @@ func saveProgress(n int) {
 		_ = os.WriteFile(p, []byte(strconv.Itoa(n)), 0o644)
 	}
 }
+
+const (
+	sandboxYear = 60 * 60 * 4 // a sandbox year lasts 4 minutes
+	roofCells   = 6
+)
+
+func levelAt(k int) *levels.Level { return &levels.All[k] }

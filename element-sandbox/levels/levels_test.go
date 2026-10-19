@@ -16,19 +16,19 @@ func place(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat) int {
 var solutions = []func(s *sim.Sim) map[sim.Mat]int{
 	func(s *sim.Sim) map[sim.Mat]int {
 		used := map[sim.Mat]int{}
-		used[sim.Coal] = place(s, 45, 182, 105, 192, sim.Coal)
+		used[sim.Coal] = place(s, 45, 178, 105, 192, sim.Coal)
 		used[sim.Copper] = place(s, 158, 100, 192, 103, sim.Copper)
 		for x := 46; x < 105; x += 3 { // hold a small flame along the coal
 			for k := 0; k < 8; k++ {
-				s.Ignite(Sc(x), Sc(181), 3)
+				s.Ignite(Sc(x), Sc(177), 3)
 				s.Step()
 			}
 		}
 		return used
 	},
 	func(s *sim.Sim) map[sim.Mat]int {
-		n := place(s, 63, 40, 64, 90, sim.Copper)
-		n += place(s, 63, 40, 329, 41, sim.Copper)
+		n := place(s, 53, 40, 54, 90, sim.Copper)
+		n += place(s, 53, 40, 329, 41, sim.Copper)
 		n += place(s, 328, 40, 329, 44, sim.Copper)
 		n += place(s, 228, 41, 229, 176, sim.Copper)
 		return map[sim.Mat]int{sim.Copper: n}
@@ -60,6 +60,32 @@ var solutions = []func(s *sim.Sim) map[sim.Mat]int{
 		cu += place(s, 220, 86, 221, 176, sim.Copper)
 		return map[sim.Mat]int{sim.Turbine: t, sim.Copper: cu}
 	},
+	func(s *sim.Sim) map[sim.Mat]int {
+		return map[sim.Mat]int{sim.Seed: plant(s, 120, 350, 12)}
+	},
+	func(s *sim.Sim) map[sim.Mat]int {
+		n := plant(s, 120, 290, 10)
+		for k := 0; k < 25*60; k++ { // let the forest grow before burning anything
+			s.Step()
+		}
+		coal := place(s, 45, 184, 105, 192, sim.Coal)
+		for x := 46; x < 105; x += 3 {
+			for k := 0; k < 8; k++ {
+				s.Ignite(Sc(x), Sc(183), 3)
+				s.Step()
+			}
+		}
+		return map[sim.Mat]int{sim.Seed: n, sim.Coal: coal}
+	},
+}
+
+// plant drops n seeds evenly between design x0 and x1, just above the dirt.
+func plant(s *sim.Sim, x0, x1, n int) int {
+	for k := 0; k < n; k++ {
+		x := Sc(x0 + (x1-x0)*k/max(n-1, 1))
+		s.Fill(x, Sc(183), x+1, Sc(183)+1, sim.Seed, false)
+	}
+	return n
 }
 
 func setup(l Level) *sim.Sim {
@@ -95,7 +121,7 @@ func TestEveryLevelHasASolution(t *testing.T) {
 			hold := 0
 			for f := 0; f < 60*60; f++ {
 				s.Step()
-				if st := s.Stats; st.Beacons > 0 && st.BeaconOn == st.Beacons {
+				if l.Won(s) {
 					hold++
 					if hold >= HoldFrames {
 						t.Logf("won after %.1f s (generating %.1f)", float64(f)/60, s.Stats.Generated)
@@ -105,7 +131,7 @@ func TestEveryLevelHasASolution(t *testing.T) {
 					hold = 0
 				}
 			}
-			t.Fatalf("not won after 60 s: beacons %d/%d, generated %.1f", s.Stats.BeaconOn, s.Stats.Beacons, s.Stats.Generated)
+			t.Fatalf("not won after 60 s: beacons %d/%d, generated %.1f, CO2 %.0f ppm", s.Stats.BeaconOn, s.Stats.Beacons, s.Stats.Generated, s.Climate.PPM)
 		})
 	}
 }
@@ -115,7 +141,7 @@ func TestNoLevelWinsByItself(t *testing.T) {
 		s := setup(l)
 		for f := 0; f < 900; f++ {
 			s.Step()
-			if st := s.Stats; st.BeaconOn > 0 && st.BeaconOn == st.Beacons {
+			if l.Won(s) {
 				t.Fatalf("%s: beacons powered without the player doing anything", l.Name)
 			}
 		}

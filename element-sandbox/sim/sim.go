@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	W       = 540
-	H       = 300
-	Ambient = 20 // °C
+	W              = 540
+	H              = 300
+	DefaultAmbient = 20 // °C, room temperature when seasons are off
 	// Res is cells per unit of the original 360x200 world. Speeds and
 	// sizes are multiplied by it so things look the same at any resolution.
 	Res     = 1.5
@@ -44,12 +44,17 @@ type Sim struct {
 	OpenTop bool // gases may escape through the top edge
 	Frame   int
 	Stats   PowerStats
+	Climate Climate
+	Ambient float32 // current outdoor air temperature, °C
 	clock   uint8
 	rng     uint32
 
 	visit     []uint32
 	visitMark uint32
 	members   []int32
+	co2Sample []int32
+	rowBusy   []bool
+	breath    float32
 	glow      []float32
 	glowTmp   []float32
 	blob      []int32
@@ -63,7 +68,8 @@ var dy8 = [8]int{-1, -1, -1, 0, 0, 1, 1, 1}
 
 // New makes an empty world at ambient temperature.
 func New() *Sim {
-	s := &Sim{Cells: make([]Cell, W*H), Wind: newWind(), OpenTop: true, rng: 0x9e3779b9}
+	s := &Sim{Cells: make([]Cell, W*H), Wind: newWind(), OpenTop: true, rng: 0x9e3779b9, Ambient: DefaultAmbient,
+		co2Sample: make([]int32, 0, 256)}
 	s.Clear()
 	return s
 }
@@ -71,7 +77,7 @@ func New() *Sim {
 // Clear empties the world and stills the air.
 func (s *Sim) Clear() {
 	for i := range s.Cells {
-		s.Cells[i] = Cell{T: Ambient}
+		s.Cells[i] = Cell{T: s.Ambient}
 	}
 	s.Wind.reset()
 }
@@ -111,7 +117,11 @@ func (s *Sim) At(x, y int) *Cell { return &s.Cells[y*W+x] }
 // put places a fresh cell of material m at index i.
 func (s *Sim) put(i int, m Mat) {
 	c := &s.Cells[i]
-	*c = Cell{M: m, T: mats[m].SpawnT, Shade: int8(s.ri(25) - 12), Flags: s.clock}
+	t := mats[m].SpawnT
+	if t == DefaultAmbient {
+		t = s.Ambient // ordinary materials arrive at the current air temperature
+	}
+	*c = Cell{M: m, T: t, Shade: int8(s.ri(25) - 12), Flags: s.clock}
 	switch m {
 	case Fire:
 		c.Life = int16(15 + s.ri(25))
@@ -139,6 +149,7 @@ func (s *Sim) swap(i, j int) {
 func (s *Sim) Step() {
 	s.Frame++
 	s.clock ^= fClock
+	s.climateStep()
 	s.Wind.step(s)
 	for y := H - 1; y >= 0; y-- {
 		ltr := s.rand()&1 == 0
@@ -151,6 +162,7 @@ func (s *Sim) Step() {
 		}
 	}
 	s.heat()
+	s.radiate()
 	s.power()
 }
 
@@ -162,7 +174,7 @@ func (s *Sim) update(x, y int) {
 	}
 	c.Flags = c.Flags&^fClock | s.clock
 	if c.M == Empty {
-		if c.T > Ambient+8 || c.T < Ambient-8 {
+		if c.T > s.Ambient+8 || c.T < s.Ambient-8 {
 			s.moveGas(x, y, i)
 		}
 		return
@@ -191,6 +203,10 @@ func (s *Sim) update(x, y int) {
 	case SSolid:
 		if info.Device != DevNone {
 			s.device(x, y, i)
+		} else if c.M == Roof {
+			c.T += (s.Ambient - 25 - c.T) * 0.2 // the upper sky is cold
+		} else if c.M == Trunk || c.M == Leaf {
+			s.growTree(x, y, i)
 		}
 	case SPowder:
 		s.movePowder(x, y, i)
@@ -200,7 +216,12 @@ func (s *Sim) update(x, y int) {
 		if c.M == Smoke {
 			c.Life--
 			if c.Life <= 0 {
-				s.become(i, Empty)
+				// soot settles back out of the air as ash
+				if s.chance(0.25) {
+					s.become(i, Ash)
+				} else {
+					s.become(i, Empty)
+				}
 				return
 			}
 		}
@@ -359,6 +380,15 @@ func (s *Sim) react(x, y, i int) bool {
 			s.become(i, Empty)
 			return true
 		}
+	case Seed:
+		if s.seedSprout(x, y, i) {
+			return true
+		}
+	case FallenLeaf:
+		if n.M == Dirt && s.chance(0.0003) {
+			s.become(i, Dirt) // rots into soil
+			return true
+		}
 	case Plant:
 		switch n.M {
 		case Water:
@@ -439,7 +469,7 @@ func (s *Sim) burn(x, y, i int) bool {
 		}
 		j := ny*W + nx
 		switch s.Cells[j].M {
-		case Empty, Fire:
+		case Empty, Fire, Ash: // ash is porous: embers keep breathing under it
 			air = true
 		case Oxygen:
 			air = true
@@ -478,6 +508,10 @@ func (s *Sim) burn(x, y, i int) bool {
 	}
 	if s.chance(info.SmokeRate) {
 		s.spawnNear(x, y, Smoke, c.T*0.4)
+	}
+	// each burnt cell of fuel releases a few cells of CO2 over its burn time
+	if info.Carbon && s.chance(2.5/float32(max(info.BurnLife, 1))) {
+		s.spawnNear(x, y, CO2, c.T*0.5) // C + O2 -> CO2
 	}
 	k := s.ri(8)
 	s.trySpread(x+dx8[k], y+dy8[k], 1)
@@ -922,26 +956,56 @@ func (s *Sim) heat() {
 	// Rows are split into bands; even bands run in parallel, then odd ones.
 	// A band only touches its own rows and the first row of the next band,
 	// so bands running at the same time never share a cell.
+	//
+	// Heat spreads one cell per pass; at the finer resolution the same
+	// distance on screen is Res times more cells, so several passes run each
+	// frame to keep heating times the same (diffusion time grows as Res^2).
+	// Rows of calm air at the outdoor temperature have nothing to conduct,
+	// so they are skipped (most of the sky, most of the time).
+	if len(s.rowBusy) != H {
+		s.rowBusy = make([]bool, H)
+	}
+	amb := s.Ambient
+	parallelRows(H, func(y0, y1 int) {
+		for y := y0; y < y1; y++ {
+			busy := false
+			for _, c := range s.Cells[y*W : (y+1)*W] {
+				if c.M != Empty || c.T > amb+0.5 || c.T < amb-0.5 {
+					busy = true
+					break
+				}
+			}
+			s.rowBusy[y] = busy
+		}
+	})
 	nb := workers * 2
 	band := (H + nb - 1) / nb
-	for phase := 0; phase < 2; phase++ {
-		var wg sync.WaitGroup
-		for k := phase; k*band < H; k += 2 {
-			wg.Add(1)
-			go func(y0, y1 int) {
-				defer wg.Done()
-				s.heatRows(y0, y1)
-			}(k*band, min((k+1)*band, H))
+	for pass := 0; pass < heatPasses; pass++ {
+		for phase := 0; phase < 2; phase++ {
+			var wg sync.WaitGroup
+			for k := phase; k*band < H; k += 2 {
+				wg.Add(1)
+				go func(y0, y1 int) {
+					defer wg.Done()
+					s.heatRows(y0, y1, pass == 0)
+				}(k*band, min((k+1)*band, H))
+			}
+			wg.Wait()
 		}
-		wg.Wait()
 	}
 }
 
-func (s *Sim) heatRows(y0, y1 int) {
+const heatPasses = 2 // ~Res^2
+
+func (s *Sim) heatRows(y0, y1 int, relax bool) {
 	cells := s.Cells
+	amb := s.Ambient
 	for y := y0; y < y1; y++ {
 		row := y * W
 		last := y+1 >= H
+		if !s.rowBusy[y] && (last || !s.rowBusy[y+1]) {
+			continue
+		}
 		for x := 0; x < W; x++ {
 			i := row + x
 			a := &cells[i]
@@ -963,8 +1027,8 @@ func (s *Sim) heatRows(y0, y1 int) {
 					b.T += f * invCap[b.M]
 				}
 			}
-			if cr := coolOf[a.M]; cr > 0 {
-				a.T += (Ambient - a.T) * cr
+			if cr := coolOf[a.M]; cr > 0 && relax {
+				a.T += (amb - a.T) * cr
 			}
 			if a.T < -273 {
 				a.T = -273

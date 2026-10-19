@@ -103,6 +103,13 @@ const (
 	Heater
 	Beacon
 
+	// Nature and climate
+	Roof
+	Seed
+	Trunk
+	Leaf
+	FallenLeaf
+
 	NumMats
 )
 
@@ -128,6 +135,7 @@ const (
 	GroupLiquids = "LIQUIDS"
 	GroupMolten  = "MOLTEN METALS"
 	GroupGases   = "GASES"
+	GroupNature  = "NATURE"
 )
 
 // MatInfo holds the physical and chemical properties of a material.
@@ -181,6 +189,7 @@ type MatInfo struct {
 	Device     Device
 	Demand     float32 // power a consumer needs to run
 	AcidProof  bool
+	Carbon     bool // burning it releases CO2
 
 	Group string // palette group ("" = hidden)
 }
@@ -196,7 +205,7 @@ func def(m Mat, name, desc string, st State, col color.RGBA, dens float32) *MatI
 	mi := &mats[m]
 	*mi = MatInfo{
 		Name: name, Desc: desc, State: st, Color: col, Density: dens,
-		Conduct: 0.04, HeatCap: 1, SpawnT: Ambient, PhaseRate: 0.05,
+		Conduct: 0.04, HeatCap: 1, SpawnT: DefaultAmbient, PhaseRate: 0.05,
 		Hardness: 0.5, Alpha: 1,
 	}
 	switch st {
@@ -297,7 +306,7 @@ func init() {
 	m = def(Coal, "Coal", "Hard to light, burns very long and hot.", SPowder, rgb(32, 32, 34), 1100)
 	m.Conduct, m.Slide = 0.03, 0.4
 	flammable(m, 300, 450, 1100, 0.02, 1800, 0.06, 0.01)
-	m.BurnInto, m.BurnChance = Ash, 0.5
+	m.BurnInto, m.BurnChance = Ash, 0.12
 
 	m = def(Sawdust, "Sawdust", "Fine wood. Floats, catches fire easily.", SPowder, rgb(210, 180, 130), 250)
 	m.Conduct, m.Slide, m.WindDrag = 0.01, 0.4, 0.35
@@ -472,4 +481,32 @@ func init() {
 	m = dev(Beacon, "Beacon", "Level goal. Each beacon needs 12 power. Power them all to win.",
 		rgb(40, 75, 55), DevBeacon, 12)
 	m.Hardness = 99
+
+	// ---- Nature ----
+	m = def(Roof, "Roof", "The sky's ceiling. Cold: steam condenses on it and rains back down.", SSolid, rgb(46, 52, 70), 9999)
+	m.Group, m.Conduct, m.Hardness, m.AcidProof = "", 0.05, 99, true
+
+	m = def(Seed, "Tree Seed", "Plant on dirt or mud. Grows into a tree in warm seasons.", SPowder, rgb(140, 100, 50), 700)
+	m.Group, m.Slide, m.WindDrag = GroupNature, 0.3, 0.05
+	flammable(m, 150, 250, 500, 0.1, 20, 0.2, 0.02)
+
+	m = def(Trunk, "Tree Trunk", "Living wood. Grows a crown of leaves every spring.", SSolid, rgb(96, 64, 36), 700)
+	m.Group, m.Conduct, m.Hardness, m.Debris = GroupNature, 0.01, 0.35, Sawdust
+	flammable(m, 150, 300, 650, 0.03, 500, 0.25, 0.02)
+	m.BurnInto, m.BurnChance = Ash, 0.35
+
+	m = def(Leaf, "Leaves", "Absorb CO2 and give off oxygen, fastest in summer. Fall in autumn.", SSolid, rgb(60, 150, 50), 400)
+	m.Group, m.Conduct, m.Hardness = GroupNature, 0.02, 0.05
+	flammable(m, 120, 230, 500, 0.08, 25, 0.3, 0.05)
+	m.BurnInto, m.BurnChance = Ash, 0.1
+
+	m = def(FallenLeaf, "Fallen Leaves", "Dry leaves. Blow around, burn easily, rot into soil.", SPowder, rgb(170, 100, 40), 150)
+	m.Group, m.Conduct, m.Slide, m.WindDrag = GroupNature, 0.01, 0.3, 0.45
+	flammable(m, 80, 220, 550, 0.4, 25, 0.4, 0.06)
+	m.BurnInto, m.BurnChance = Ash, 0.3
+
+	// carbon-based fuels give off CO2 when they burn
+	for _, c := range []Mat{Wood, Plant, Coal, Sawdust, Oil, Gasoline, Diesel, Ethanol, Seed, Trunk, Leaf, FallenLeaf} {
+		mats[c].Carbon = true
+	}
 }

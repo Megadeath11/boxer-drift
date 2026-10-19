@@ -1,6 +1,6 @@
 # Element Sandbox
 
-A 2D falling-sand physics and chemistry sandbox with 66 real-world materials. You can heat, burn, freeze, blow up and blow around whatever you build. It also has a **power puzzle mode**: make electricity from steam, heat or wind, and run it through metal wire to light every beacon.
+A 2D falling-sand physics and chemistry sandbox with 70 real-world materials. You can heat, burn, freeze, blow up and blow around whatever you build. The world has **seasons, weather and a roof of sky** that steam and smoke gather under. Every fire adds CO2, and **trees** are how you clean the air. It also has a **power puzzle mode**: make electricity from steam, heat or wind, and run it through metal wire to light every beacon without choking the valley.
 
 It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put it anywhere, even on a USB stick, and double-click it.
 
@@ -11,6 +11,7 @@ It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put
 | Solids | Wall, Stone, Wood, Glass, Ice, Plant, TNT, Dry Ice |
 | Metals | Iron, Copper, Aluminum, Lead, Tin, Titanium, Silver, Gold, Platinum, and a molten form of each |
 | Power | Turbine, Thermo Gen, Battery, Lamp, Heater, Beacon |
+| Nature | Tree Seed, Tree Trunk, Leaves, Fallen Leaves |
 | Powders | Sand, Dirt, Gravel, Salt, Snow, Gunpowder, Coal, Sawdust, Thermite, Ash, Rust |
 | Liquids | Water, Salt Water, Oil, Gasoline, Diesel, Ethanol, Lava, Acid, Mercury, Liquid N2, Molten Glass, Mud, Nitroglycerin |
 | Gases | Steam, Smoke, Hydrogen, Oxygen, Methane, Propane, CO2, Nitrogen, Chlorine, Fuel Vapor |
@@ -24,6 +25,36 @@ It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put
 - The main menu runs a live scene behind its buttons.
 - Rendering, glow and heat conduction run in parallel on all CPU cores.
 
+## Seasons, weather and the roof
+
+- **Seasons**: a sandbox year lasts 4 minutes and cycles through spring, summer, autumn and winter.
+  - The outdoor temperature runs from about −6 °C in midwinter to 26 °C in midsummer, and the air drifts toward it.
+  - Ponds freeze in winter and snow melts in spring.
+  - The sky colour changes with the season.
+- **Weather**: it rains in spring and autumn and snows in winter.
+- **Roof**: a cold roof caps the sky.
+  - Hot gases rise and gather under it instead of escaping.
+  - Steam condenses on its cold underside and falls back as rain.
+  - Smoke eventually settles out of the air as ash.
+  - Press `O` to remove the roof and let gases escape into space.
+
+## Trees and pollution
+
+- **Trees**: plant **Tree Seeds** on dirt or mud. In the warm seasons they grow a trunk, side branches and a crown of leaves.
+  - In autumn the leaves turn red, orange and yellow, then drop. The trees are bare in winter and grow new leaves in spring.
+  - Fallen leaves blow around, burn easily and rot into soil.
+- **Pollution**: burning coal, wood, oil, fuel or anything else carbon-based releases **CO2**, and burning gases do too.
+  - The climate panel shows the concentration in **ppm**: green when clean, yellow when polluted, red when toxic.
+  - CO2 traps heat. Each 150 ppm above the pre-industrial 280 ppm warms the world by about 1 °C.
+  - Above 1200 ppm, leaves start to wilt and fall.
+- **Photosynthesis**: leaves take CO2 out of the air and give off oxygen. It's fastest in spring and summer, slow in autumn and stops in winter, so a forest has to be big enough to keep up with your fires.
+
+## Camera
+
+- **Zoom**: the mouse wheel zooms toward the cursor, up to 8×. `Z` and `X` also zoom.
+- **Pan**: `W` `A` `S` `D` or drag with the middle mouse button. When zoomed in, a minimap shows where you are.
+- **Reset**: `Home` or `0` zooms back out to the whole map.
+
 ## Levels
 
 Pick a level from the main menu. Each one gives you a few materials in limited amounts, shown as the numbers on the palette buttons. Erasing your own material refunds it. To win, keep every beacon powered for 3 seconds. Your progress is saved in `ElementSandbox-progress.txt` next to the exe.
@@ -33,6 +64,8 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 3. **Hot and Cold**: no water. Put thermoelectric generators between the lava and ice or liquid nitrogen.
 4. **Gold Standard**: the wire has to pass through acid. Copper dissolves; gold doesn't.
 5. **Wind Farm**: strong wind but sheltered valleys. Put a limited number of turbines up high.
+6. **Clean Air**: the power is on, but the valley is full of smog. Plant a forest to bring CO2 under 500 ppm.
+7. **Coal Country**: only coal can boil this pot. Keep the beacon lit and the air under 500 ppm, so plant trees before you light the fire.
 
 ## Electricity
 
@@ -52,6 +85,7 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 
 - **Density**: everything floats or sinks by real density. Oil floats on water, mercury sinks through everything, sawdust floats, and sand sinks.
 - **Heat**: every cell has a temperature, and heat conducts between neighbours at each material's own rate (iron is fast, wood and air are slow). Hot things glow. Press `T` for a thermal camera view.
+- **Thermal radiation**: anything glowing above about 350 °C beams heat at whatever it can see, following the T⁴ Stefan–Boltzmann law. That's how a fire heats a pot across an air gap. Heat conduction runs twice per frame, so heating times stay realistic at the finer resolution.
 - **Phase changes at real temperatures**: water freezes at 0 °C and boils at 100 °C; salt water freezes at −21 °C; steam condenses below 100 °C and falls back as rain; lava sets into stone below 700 °C and stone melts at about 1200 °C; sand melts into glass at about 1700 °C; iron melts at 1538 °C; liquid nitrogen boils at −196 °C; dry ice sublimates at −78 °C.
 - **Combustion**: each fuel has its own flash point, auto-ignition temperature, flame temperature and burn time, and needs oxygen.
   - Gasoline has a flash point of −43 °C, so it lights instantly and gives off heavy fuel vapor.
@@ -80,12 +114,17 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 | Left mouse | Paint the selected material or use the selected tool |
 | Right mouse | Erase |
 | Shift + paint | Replace existing material |
-| Mouse wheel, `[` `]` | Brush size (wheel over the palette scrolls it) |
+| Mouse wheel | Zoom in / out (over the palette it scrolls) |
+| `[` `]`, Shift + wheel | Brush size |
+| `W` `A` `S` `D`, middle-drag | Move the camera |
+| `Z` / `X`, `Home` | Zoom in / out, show the whole map |
 | `←` `→` / `↓` | Global wind / calm |
 | `Space` / `N` | Pause / single step |
 | `T` | Heat (temperature) view |
 | `V` | Show wind / air flow |
-| `O` | Open or close the sky (whether gases escape at the top) |
+| `O` | Roof on / off |
+| `K` / `L` | Next season / lock the season |
+| `J` / `P` | Seasons on / off, weather on / off |
 | `C` | Clear (sandbox) |
 | `R` | Restart level |
 | `Esc` | Main menu |

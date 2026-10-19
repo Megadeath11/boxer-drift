@@ -71,7 +71,7 @@ func (w *Wind) step(s *Sim) {
 			continue
 		}
 		if w.tcnt[fi] > 0 {
-			dT := w.tsum[fi]/float32(w.tcnt[fi]) - Ambient
+			dT := w.tsum[fi]/float32(w.tcnt[fi]) - s.Ambient
 			dT = clamp(dT, -300, 600)
 			w.V[fi] -= dT * 0.0003 * Res // buoyancy: hot air rises, cold sinks
 		}

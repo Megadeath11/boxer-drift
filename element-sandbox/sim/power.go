@@ -25,14 +25,20 @@ func (s *Sim) device(x, y, i int) {
 			if s.Cells[j].M == Steam {
 				// steam pushing through the blades gives up its energy and
 				// condenses back into water
-				out += 0.8
+				out += 1.5
 				if s.chance(0.06) {
 					s.become(j, Water)
 				}
 			}
 		}
 		wu, wv := s.Wind.At(x, y)
-		out += float32(math.Hypot(float64(wu), float64(wv))) * 0.8
+		// wind turbines face the wind: they catch horizontal wind above a
+		// cut-in speed, with output rising steeply with speed. Rising hot
+		// air (a vertical draught) doesn't drive them.
+		_ = wv
+		if v := abs32(wu) - 0.4; v > 0 {
+			out += 1.5 * v * v
+		}
 		c.VX = c.VX*0.85 + out*0.15
 		c.VY += c.VX * 0.08 // blade angle, for drawing
 	case DevThermoGen:
@@ -88,13 +94,30 @@ func (s *Sim) power() {
 	}
 	st := PowerStats{}
 	beacons := false
+	co2, smoke, leaves := 0, 0, 0
+	s.co2Sample = s.co2Sample[:0]
 	for i := range s.Cells {
 		c := &s.Cells[i]
 		c.Flags &^= fPowered
-		if c.M == Beacon {
+		switch c.M {
+		case Beacon:
 			beacons = true
+		case CO2:
+			co2++
+			// reservoir-sample some CO2 cells for the forest to breathe in
+			if len(s.co2Sample) < cap(s.co2Sample) {
+				s.co2Sample = append(s.co2Sample, int32(i))
+			} else if k := s.ri(co2); k < len(s.co2Sample) {
+				s.co2Sample[k] = int32(i)
+			}
+		case Smoke:
+			smoke++
+		case Leaf:
+			leaves++
 		}
 	}
+	s.Climate.CO2Cells, s.Climate.SmokeCells, s.Climate.Leaves = co2, smoke, leaves
+	s.breathe(leaves)
 	if beacons {
 		st.Beacons = s.labelBeacons()
 	}

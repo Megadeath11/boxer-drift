@@ -71,28 +71,35 @@ const (
 )
 
 type Game struct {
-	sim      *sim.Sim
-	img      *ebiten.Image
-	glowImg  *ebiten.Image
-	glowPix  []byte
-	demo     *sim.Sim // live scene behind the main menu
-	toast    string   // short message shown over the world
-	toastT   int
-	pix      []byte
-	face     text.Face
-	entries  []entry
-	headers  []header
-	listH    int
-	scroll   int
-	sel      int
-	brush    int
-	paused   bool
-	view     int
-	showWind bool
-	help     bool
-	lastX    int
-	lastY    int
-	drawing  bool
+	sim     *sim.Sim
+	img     *ebiten.Image
+	glowImg *ebiten.Image
+	glowPix []byte
+	demo    *sim.Sim // live scene behind the main menu
+	toast   string   // short message shown over the world
+	toastT  int
+
+	// camera: zoom 1 shows the whole world; cam is the top-left cell shown
+	zoom       float64
+	camX, camY float64
+	panning    bool
+	panMX      int
+	panMY      int
+	pix        []byte
+	face       text.Face
+	entries    []entry
+	headers    []header
+	listH      int
+	scroll     int
+	sel        int
+	brush      int
+	paused     bool
+	view       int
+	showWind   bool
+	help       bool
+	lastX      int
+	lastY      int
+	drawing    bool
 
 	mode     screenMode
 	level    int // index into levels.All, or -1 for sandbox
@@ -116,6 +123,7 @@ func newGame() *Game {
 		demo:     newDemo(),
 		face:     text.NewGoXFace(basicfont.Face7x13),
 		brush:    6,
+		zoom:     1,
 		level:    -1,
 		unlocked: loadProgress(),
 	}
@@ -131,7 +139,7 @@ var toolEntries = map[string]entry{
 	levels.ToolBomb:  {label: "Bomb", tool: toolBomb, col: color.RGBA{200, 200, 60, 255}, desc: "Click for an explosion (size = brush)."},
 }
 
-var groupOrder = []string{sim.GroupSolids, sim.GroupMetals, sim.GroupPower, sim.GroupPowders,
+var groupOrder = []string{sim.GroupSolids, sim.GroupMetals, sim.GroupPower, sim.GroupNature, sim.GroupPowders,
 	sim.GroupLiquids, sim.GroupMolten, sim.GroupGases}
 
 func matEntry(m sim.Mat, budget int) entry {
@@ -224,7 +232,43 @@ func (g *Game) Update() error {
 	}
 	if g.level < 0 { // sandbox-only controls: levels set their own world
 		if inpututil.IsKeyJustPressed(ebiten.KeyO) {
-			g.sim.OpenTop = !g.sim.OpenTop
+			if g.sim.OpenTop {
+				g.sim.AddRoof(roofCells)
+				g.say("Roof on: gases gather under it, steam rains back down")
+			} else {
+				g.sim.AddRoof(0)
+				g.say("Roof off: gases escape into the sky")
+			}
+		}
+		cl := &g.sim.Climate
+		if inpututil.IsKeyJustPressed(ebiten.KeyK) {
+			cl.Enabled = true
+			cl.SetSeason(cl.Season() + 1)
+			g.say("It is now " + sim.SeasonNames[cl.Season()])
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyL) {
+			cl.Locked = !cl.Locked
+			if cl.Locked {
+				g.say("Season locked")
+			} else {
+				g.say("Seasons cycling (a year lasts 4 minutes)")
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
+			cl.Enabled = !cl.Enabled
+			if cl.Enabled {
+				g.say("Seasons on")
+			} else {
+				g.say("Seasons off: always 20 C")
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyP) {
+			cl.Weather = !cl.Weather
+			if cl.Weather {
+				g.say("Weather on: rain in spring and autumn, snow in winter")
+			} else {
+				g.say("Weather off")
+			}
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyC) {
 			g.sim.Clear()
@@ -254,12 +298,17 @@ func (g *Game) Update() error {
 		case mx >= simW: // scroll the palette
 			g.scroll -= int(wy * 24)
 			g.scroll = max(0, min(g.scroll, g.listH-(listBot-listTop)))
-		case wy > 0:
-			g.brush = min(g.brush+1, maxBrush)
+		case ebiten.IsKeyPressed(ebiten.KeyShift) || ebiten.IsKeyPressed(ebiten.KeyControl):
+			if wy > 0 {
+				g.brush = min(g.brush+1, maxBrush)
+			} else {
+				g.brush = max(g.brush-1, 0)
+			}
 		default:
-			g.brush = max(g.brush-1, 0)
+			g.zoomAt(mx, my, math.Pow(1.2, wy))
 		}
 	}
+	g.updateCamera(mx, my)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		if k := g.entryAt(mx, my); k >= 0 {
 			g.sel = k
@@ -274,7 +323,7 @@ func (g *Game) Update() error {
 	}
 	inSim := mx >= 0 && mx < simW && my >= 0 && my < simH
 	if inSim && (left || right) {
-		sx, sy := mx/scale, my/scale
+		sx, sy := g.toCell(mx, my)
 		if !g.drawing {
 			g.lastX, g.lastY = sx, sy
 			if left && g.entries[g.sel].tool == toolBomb {
@@ -400,12 +449,16 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	mx, my := ebiten.CursorPosition()
 	if mx < simW && my < simH {
-		r := float32(g.brush*scale) + 1.5
+		r := float32(float64(g.brush)*g.ppc()) + 1.5
 		c := color.RGBA{255, 255, 255, 150}
 		if e := g.entries[g.sel]; e.tool == toolMat {
 			c = color.RGBA{e.col.R/2 + 100, e.col.G/2 + 100, e.col.B/2 + 100, 170}
 		}
 		vector.StrokeCircle(screen, float32(mx), float32(my), r, 1, c, true)
+	}
+	g.drawClimate(screen)
+	if g.zoom > 1.01 {
+		g.drawMinimap(screen)
 	}
 	if g.paused {
 		g.banner(screen, "PAUSED  (Space to resume, N to step)", 40, colAccent, 255)
@@ -429,17 +482,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 // on top in the normal view. With fill it covers the whole window instead of
 // the play area (anchored to the bottom).
 func (g *Game) drawWorld(screen *ebiten.Image, s *sim.Sim, view int, fill bool) {
-	f, ty := float64(scale), 0.0
+	f, tx, ty := g.ppc(), -g.camX*g.ppc(), -g.camY*g.ppc()
+	dst := screen.SubImage(image.Rect(0, 0, simW, simH)).(*ebiten.Image)
 	if fill {
-		f = float64(screenW) / sim.W
+		f, tx = float64(screenW)/sim.W, 0
 		ty = screenH - sim.H*f
+		dst = screen
 	}
 	s.Render(g.pix, view)
 	g.img.WritePixels(g.pix)
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(f, f)
-	op.GeoM.Translate(0, ty)
-	screen.DrawImage(g.img, op)
+	op.GeoM.Translate(tx, ty)
+	dst.DrawImage(g.img, op)
 	if view != sim.ViewNormal {
 		return
 	}
@@ -447,9 +502,9 @@ func (g *Game) drawWorld(screen *ebiten.Image, s *sim.Sim, view int, fill bool) 
 	g.glowImg.WritePixels(g.glowPix)
 	gop := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear, Blend: ebiten.BlendLighter}
 	gop.GeoM.Scale(f*glowDS, f*glowDS)
-	gop.GeoM.Translate(0, ty)
+	gop.GeoM.Translate(tx, ty)
 	gop.ColorScale.ScaleAlpha(0.85)
-	screen.DrawImage(g.glowImg, gop)
+	dst.DrawImage(g.glowImg, gop)
 }
 
 // banner draws a centred line of text on a dark strip over the world.
@@ -488,8 +543,10 @@ func (g *Game) drawWind(screen *ebiten.Image) {
 			if mag < 0.03 {
 				continue
 			}
-			cx := float32((i*sim.CS + sim.CS/2) * scale)
-			cy := float32((j*sim.CS + sim.CS/2) * scale)
+			cx, cy := g.toScreen(float64(i*sim.CS+sim.CS/2), float64(j*sim.CS+sim.CS/2))
+			if cx < 0 || cy < 0 || cx > simW || cy > simH {
+				continue
+			}
 			var p vector.Path
 			p.MoveTo(cx, cy)
 			p.LineTo(cx+u*6+0.01, cy+v*6)
@@ -586,20 +643,17 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 	if g.paused {
 		state = "PAUSED (N = step)"
 	}
-	top := "open"
-	if !g.sim.OpenTop {
-		top = "closed"
-	}
-	view := "normal"
-	if g.view == sim.ViewHeat {
-		view = "heat"
+	roof := "on"
+	if g.sim.OpenTop {
+		roof = "off"
 	}
 	st := g.sim.Stats
-	s := fmt.Sprintf("%s | Brush %d | Wind %s | Sky %s | View %s | Power %.0f/%.0f | H help | %.0f FPS",
-		state, g.brush, wind, top, view, st.Used, st.Generated, ebiten.ActualFPS())
+	s := fmt.Sprintf("%s | Brush %d | Zoom %.1fx | Wind %s | Roof %s | Power %.0f/%.0f | H help | %.0f FPS",
+		state, g.brush, g.zoom, wind, roof, st.Used, st.Generated, ebiten.ActualFPS())
 	g.text(screen, s, 8, simH+7, colText)
 	if mx >= 0 && mx < simW && my >= 0 && my < simH {
-		c := g.sim.At(mx/scale, my/scale)
+		cx, cy := g.toCell(mx, my)
+		c := g.sim.At(cx, cy)
 		cell := fmt.Sprintf("%s  %.0f C", sim.Info(c.M).Name, c.T)
 		g.text(screen, cell, simW-len(cell)*7-8, simH+7, colAccent)
 	}
@@ -608,28 +662,31 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 var helpLines = []string{
 	"ELEMENT SANDBOX - controls",
 	"",
-	"Left mouse      paint selected material / use tool",
-	"Right mouse     erase",
-	"Shift + paint   replace existing material",
-	"Mouse wheel [ ] brush size",
-	"Left / Right    global wind  (Down = calm)",
-	"Space           pause    N  single step",
-	"T               heat (temperature) view",
-	"V               show wind / air flow",
-	"O               open / close the sky for gases",
-	"C               clear everything (sandbox)",
-	"R               restart level",
-	"Esc             main menu",
-	"F11             fullscreen",
-	"H / F1          show / hide this help",
+	"Left mouse       paint selected material / use tool",
+	"Right mouse      erase",
+	"Shift + paint    replace existing material",
+	"[ ]  Shift+wheel brush size",
+	"Mouse wheel      zoom in / out (Z / X keys too)",
+	"WASD, middle-drag  move around when zoomed in",
+	"Home or 0        zoom out to the whole map",
+	"Left / Right     global wind  (Down = calm)",
+	"Space            pause    N  single step",
+	"T  heat view     V  show air flow",
+	"O  roof on/off   C  clear everything",
+	"K  next season   L  lock season",
+	"J  seasons on/off   P  weather on/off",
+	"R  restart level    Esc  main menu",
+	"F11  fullscreen     H / F1  this help",
 	"",
 	"Power: Turbines (steam / wind) and Thermo Gens",
-	"make power. Metal carries it to Lamps, Heaters,",
-	"Batteries and Beacons. Status bar: used/made.",
+	"make power; metal carries it to Lamps, Heaters,",
+	"Batteries and Beacons.",
+	"Pollution: burning coal, wood and fuel makes CO2.",
+	"Plant Tree Seeds on dirt: leaves breathe it in.",
 }
 
 func (g *Game) drawHelp(screen *ebiten.Image) {
-	w, h := float32(400), float32(len(helpLines)*14+20)
+	w, h := float32(420), float32(len(helpLines)*14+20)
 	x, y := float32(simW)/2-w/2, float32(simH)/2-h/2
 	vector.DrawFilledRect(screen, x, y, w, h, color.RGBA{10, 12, 18, 225}, false)
 	vector.StrokeRect(screen, x, y, w, h, 1, colAccent, false)

@@ -13,7 +13,7 @@ const (
 
 // Render writes the world as RGBA pixels (W*H*4 bytes).
 func (s *Sim) Render(pix []byte, view int) {
-	base := mats[Empty].Color
+	base := s.skyColor()
 	parallelRows(H, func(y0, y1 int) {
 		for y := y0; y < y1; y++ {
 			// sky gradient: a little lighter and bluer toward the top
@@ -72,6 +72,14 @@ func (s *Sim) cellColor(c *Cell, bg color.RGBA, i int) (r, g, b float32) {
 		return 255, 70 + 170*t + sh*2, 15 + 90*t*t
 	}
 	col := info.Color
+	switch c.M {
+	case Leaf:
+		col = s.leafColor(c)
+	case Roof:
+		if (i/W+i%W/3)%5 == 0 {
+			col.R, col.G, col.B = col.R+12, col.G+12, col.B+14
+		}
+	}
 	r, g, b = float32(col.R)+sh, float32(col.G)+sh, float32(col.B)+sh
 	if info.State != SGas {
 		r, g, b = s.shade(c, info, i, r, g, b)
@@ -323,4 +331,61 @@ func boxBlur(a, tmp []float32, w, h, r int) {
 			}
 		}
 	}
+}
+
+type rgbf struct{ r, g, b float32 }
+
+func lerpc(a, b rgbf, t float32) rgbf {
+	return rgbf{a.r + (b.r-a.r)*t, a.g + (b.g-a.g)*t, a.b + (b.b-a.b)*t}
+}
+
+// seasonBlend returns the two seasons around now and how far we are from
+// the middle of the first toward the middle of the second.
+func (s *Sim) seasonBlend() (int, int, float32) {
+	p := s.Climate.Phase*4 - 0.5 // 0 = mid-spring
+	if p < 0 {
+		p += 4
+	}
+	a := int(p) % 4
+	return a, (a + 1) % 4, float32(p - float64(int(p)))
+}
+
+var skyBySeason = [4]rgbf{{13, 19, 26}, {11, 18, 32}, {20, 16, 18}, {22, 25, 32}}
+
+// skyColor is the air colour: it follows the seasons and turns a dirty
+// brown as CO2 and smoke build up.
+func (s *Sim) skyColor() color.RGBA {
+	base := mats[Empty].Color
+	sky := rgbf{float32(base.R), float32(base.G), float32(base.B)}
+	if s.Climate.Enabled {
+		a, b, t := s.seasonBlend()
+		sky = lerpc(skyBySeason[a], skyBySeason[b], t)
+	}
+	haze := clamp((s.Climate.PPM-500)/2500, 0, 0.6)
+	sky = lerpc(sky, rgbf{48, 38, 22}, haze)
+	return color.RGBA{u8(sky.r), u8(sky.g), u8(sky.b), 255}
+}
+
+var leafBySeason = [4]rgbf{{110, 190, 70}, {50, 140, 45}, {200, 110, 30}, {120, 80, 40}}
+var autumnLeaf = [3]rgbf{{215, 80, 30}, {230, 150, 30}, {190, 50, 40}}
+
+func (s *Sim) leafColor(c *Cell) color.RGBA {
+	col := leafBySeason[Summer]
+	if s.Climate.Enabled {
+		a, b, t := s.seasonBlend()
+		ca, cb := leafBySeason[a], leafBySeason[b]
+		// each leaf turns its own shade of red, orange or yellow in autumn
+		v := autumnLeaf[(int(c.Shade)+12)%3]
+		if a == Autumn {
+			ca = v
+		}
+		if b == Autumn {
+			cb = v
+		}
+		col = lerpc(ca, cb, t)
+	}
+	if s.Climate.PPM > PPMUnhealthy {
+		col = lerpc(col, rgbf{120, 100, 50}, clamp((s.Climate.PPM-PPMUnhealthy)/2000, 0, 0.7))
+	}
+	return color.RGBA{u8(col.r), u8(col.g), u8(col.b), 255}
 }

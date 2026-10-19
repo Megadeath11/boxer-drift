@@ -29,6 +29,26 @@ type Level struct {
 	OpenTop bool
 	Allow   []Allow
 	Build   func(s *sim.Sim)
+	// MaxPPM, if set, is the CO2 level the air must be at or below (while
+	// every beacon is powered) to win.
+	MaxPPM float32
+}
+
+// Won reports whether the level's goal is currently met.
+func (l *Level) Won(s *sim.Sim) bool {
+	st := s.Stats
+	if st.Beacons == 0 || st.BeaconOn != st.Beacons {
+		return false
+	}
+	return l.MaxPPM <= 0 || s.Climate.PPM <= l.MaxPPM
+}
+
+// summer locks the level in a calm summer under a roof.
+func summer(s *sim.Sim) {
+	s.Climate = sim.Climate{Enabled: true, Locked: true, YearFrames: 60 * 60 * 4}
+	s.Climate.SetSeason(sim.Summer)
+	s.Climate.Phase += 0.125
+	s.AddRoof(Sc(3))
 }
 
 // HoldFrames is how long every beacon must stay powered to win (3 s).
@@ -58,10 +78,16 @@ func floor(s *sim.Sim) { wall(s, 0, 192, 360, 200) }
 // boiler builds an iron pot of water at x0..x0+70 with a turbine lid and a
 // copper lead rising from the lid to y=wireY. Returns the lead's x.
 func boiler(s *sim.Sim, x0, wireY int, vent bool) int {
-	x1 := x0 + 70
-	fixed(s, x0, 130, x0+3, 192, sim.Metal) // left side + leg
-	fixed(s, x1-3, 130, x1, 192, sim.Metal) // right side + leg
-	fixed(s, x0, 170, x1, 173, sim.Metal)   // bottom
+	return wideBoiler(s, x0, 70, wireY, vent)
+}
+
+// wideBoiler is boiler with a chosen width: wider pots boil more water.
+func wideBoiler(s *sim.Sim, x0, width, wireY int, vent bool) int {
+	x1 := x0 + width
+	// the pot hangs over an open firebox so a fire under it can draw air
+	fixed(s, x0, 130, x0+3, 173, sim.Metal)
+	fixed(s, x1-3, 130, x1, 173, sim.Metal)
+	fixed(s, x0, 170, x1, 173, sim.Metal) // bottom
 	fill(s, x0+3, 150, x1-3, 170, sim.Water, false)
 	fixed(s, x0+3, 126, x1-3, 130, sim.Turbine) // lid: steam spins it
 	lead := x0 + 33
@@ -81,12 +107,13 @@ var All = []Level{
 		Name: "1. First Spark",
 		Brief: []string{
 			"The pot is full of water and its lid is a turbine.",
-			"Pile Coal under the pot and light it with Fire.",
+			"Pile Coal under the pot, leaving a little air gap so",
+			"it can breathe, and hold the Fire on it until it catches.",
 			"Boiling water makes steam, the steam spins the",
 			"turbine, and the turbine powers the beacon.",
 			"There is a gap in the wire: bridge it with Copper.",
 		},
-		Allow: []Allow{mat(sim.Coal, 600), tool(ToolFire), mat(sim.Copper, 300), tool(ToolErase)},
+		Allow: []Allow{mat(sim.Coal, 1100), tool(ToolFire), mat(sim.Copper, 300), tool(ToolErase)},
 		Build: func(s *sim.Sim) {
 			floor(s)
 			lead := boiler(s, 40, 100, false)
@@ -108,7 +135,7 @@ var All = []Level{
 		Allow: []Allow{mat(sim.Copper, 700), tool(ToolErase)},
 		Build: func(s *sim.Sim) {
 			floor(s)
-			boiler(s, 30, 90, true)
+			wideBoiler(s, 20, 110, 90, true)
 			wall(s, 150, 120, 170, 192) // a ridge to route around
 			fixed(s, 220, 176, 236, 192, sim.Beacon)
 			wall(s, 290, 60, 360, 66) // high ledge
@@ -177,6 +204,48 @@ var All = []Level{
 			}
 			fixed(s, 92, 176, 108, 192, sim.Beacon)
 			fixed(s, 212, 176, 228, 192, sim.Beacon)
+		},
+	},
+	{
+		Name: "6. Clean Air",
+		Brief: []string{
+			"The power is on, but the valley is choking on CO2.",
+			"Plant Tree Seeds on the dirt. Trees grow in the warm",
+			"summer, and their leaves breathe CO2 in and oxygen out.",
+			"Bring CO2 down to 500 ppm and keep the beacon lit.",
+		},
+		MaxPPM: 500,
+		Allow:  []Allow{{Mat: sim.Seed, Budget: 14}, mat(sim.Dirt, 400), tool(ToolErase)},
+		Build: func(s *sim.Sim) {
+			summer(s)
+			floor(s)
+			lead := boiler(s, 20, 120, true)
+			fixed(s, lead, 120, 312, 123, sim.Copper)
+			fixed(s, 309, 123, 312, 168, sim.Copper)
+			fixed(s, 302, 168, 318, 184, sim.Beacon)
+			fill(s, 110, 184, 360, 192, sim.Dirt, true)
+			fill(s, 110, 178, 300, 181, sim.CO2, false) // the smog
+		},
+	},
+	{
+		Name: "7. Coal Country",
+		Brief: []string{
+			"Only coal can boil this pot, and coal makes CO2.",
+			"Keep the beacon powered AND the air at or under",
+			"500 ppm. Trees take time to grow: plant them early,",
+			"and don't burn more coal than you need.",
+		},
+		MaxPPM: 500,
+		Allow: []Allow{{Mat: sim.Seed, Budget: 12}, mat(sim.Coal, 600), tool(ToolFire),
+			tool(ToolErase)},
+		Build: func(s *sim.Sim) {
+			summer(s)
+			floor(s)
+			lead := boiler(s, 20, 120, false)
+			fixed(s, lead, 120, 312, 123, sim.Copper)
+			fixed(s, 309, 123, 312, 168, sim.Copper)
+			fixed(s, 302, 168, 318, 184, sim.Beacon)
+			fill(s, 110, 184, 300, 192, sim.Dirt, true)
 		},
 	},
 }

@@ -47,7 +47,7 @@ func (s *Sim) Erase(cx, cy, r int) (removed [NumMats]int) {
 			return
 		}
 		removed[s.Cells[i].M]++
-		s.Cells[i] = Cell{T: Ambient, Flags: s.clock}
+		s.Cells[i] = Cell{T: s.Ambient, Flags: s.clock}
 	})
 	return
 }
