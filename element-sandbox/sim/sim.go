@@ -35,6 +35,7 @@ const (
 	fClock   = 1 << 1
 	fFixed   = 1 << 2 // part of a level's layout: the player can't erase it
 	fPowered = 1 << 3
+	fBuilt   = 1 << 4 // placed by the player in the campaign (can be demolished for a refund)
 )
 
 // Sim is the whole world.
@@ -210,9 +211,13 @@ func (s *Sim) update(x, y int) {
 			s.growTree(x, y, i)
 		}
 	case SPowder:
-		s.movePowder(x, y, i)
+		if c.Flags&fFixed == 0 { // level layout (a dirt hill, a lava vent) stays put
+			s.movePowder(x, y, i)
+		}
 	case SLiquid:
-		s.moveLiquid(x, y, i)
+		if c.Flags&fFixed == 0 {
+			s.moveLiquid(x, y, i)
+		}
 	case SGas:
 		if c.M == Smoke {
 			c.Life--
@@ -332,14 +337,14 @@ func (s *Sim) react(x, y, i int) bool {
 				return true
 			}
 		case Metal:
-			if s.chance(0.0004) {
+			if canRust(n) && s.chance(0.0004) {
 				s.become(j, Rust)
 			}
 		}
 	case SaltWater:
 		switch n.M {
 		case Metal:
-			if s.chance(0.002) {
+			if canRust(n) && s.chance(0.002) {
 				s.become(j, Rust)
 			}
 		case Ice, Snow:
@@ -736,6 +741,10 @@ func (s *Sim) travel(x, y, i int) (int, bool) {
 	}
 	return ci, moved
 }
+
+// canRust reports whether iron is bare enough to rust: level layout
+// and the campaign's bought kits are protected, so boilers don't rot away.
+func canRust(c *Cell) bool { return c.Flags&(fFixed|fBuilt) == 0 }
 
 func abs32(v float32) float32 {
 	if v < 0 {

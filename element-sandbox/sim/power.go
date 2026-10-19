@@ -75,7 +75,8 @@ func (s *Sim) device(x, y, i int) {
 type PowerStats struct {
 	Generated, Used   float32
 	Beacons, BeaconOn int
-	Stored            float32
+	Stored            float32 // power held in batteries wired into a circuit
+	Capacity          float32 // what those batteries could hold
 }
 
 // power finds every connected circuit of conductive cells and shares the
@@ -99,9 +100,10 @@ func (s *Sim) power() {
 	for i := range s.Cells {
 		c := &s.Cells[i]
 		c.Flags &^= fPowered
-		switch c.M {
-		case Beacon:
+		if mats[c.M].Device == DevBeacon {
 			s.beaconAt = append(s.beaconAt, int32(i))
+		}
+		switch c.M {
 		case CO2:
 			co2++
 			// reservoir-sample some CO2 cells for the forest to breathe in
@@ -221,7 +223,7 @@ func (s *Sim) demandOf(m int32) float32 {
 
 func (s *Sim) resolveCircuit(st *PowerStats) {
 	gen, demand := float32(0), float32(0)
-	stored := float32(0)
+	stored, capacity := float32(0), float32(0)
 	s.blobMark++
 	for _, m := range s.members {
 		c := &s.Cells[m]
@@ -230,6 +232,7 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 			gen += c.VX
 		case DevBattery:
 			stored += float32(c.Life)
+			capacity += batteryCap
 		}
 		demand += s.demandOf(m)
 	}
@@ -309,7 +312,9 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 		// current flows: wires show it, and resistive ones warm up
 		for _, m := range s.members {
 			c := &s.Cells[m]
-			c.Flags |= fPowered
+			if mats[c.M].Demand == 0 { // consumers already show whether they got power
+				c.Flags |= fPowered
+			}
 			if r := mats[c.M].Resist; r > 0 {
 				c.T += used * r * 0.003
 			}
@@ -318,6 +323,7 @@ func (s *Sim) resolveCircuit(st *PowerStats) {
 	st.Generated += gen
 	st.Used += used
 	st.Stored += stored
+	st.Capacity += capacity
 }
 
 // roundRandom rounds v up or down at random in proportion to its fraction,

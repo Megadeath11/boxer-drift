@@ -55,6 +55,29 @@ It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put
 - **Pan**: `W` `A` `S` `D` or drag with the middle mouse button. When zoomed in, a minimap shows where you are.
 - **Reset**: `Home` or `0` zooms back out to the whole map.
 
+## Campaign
+
+The place to start. You run the power company for a small valley town, in one world that carries on from stage to stage. Stage 1 is a step-by-step tutorial with a checklist.
+
+- **Money**: each stage hands you a budget. The shop (the right-hand sidebar) sells ready-made **kits**, and materials by the pixel:
+  - **Wind Turbine**: a mast with a rotor. Hilltops and open ground catch the most wind; turbines downwind of the hill or of each other get less. Press `V` to see the air flow.
+  - **Steam Boiler**: a pot of water on legs with a turbine lid, under a hood so only steam turns it. Pile **Coal** in the firebox and light it with **Fire**.
+  - **Battery Bank**: stores spare power for when the wind drops.
+  - **Copper Wire**, **Coal**, **Tree Seeds** and **Dirt** cost money per pixel.
+- **Placing kits**: pick one and click. A ghost shows where it will land (red means it doesn't fit, it isn't standing on the ground, or you can't afford it).
+- **Demolish** (or right-click) pulls down your own buildings and wire for half their price back.
+- **The town grows**: each stage adds houses or changes the weather, and everything you built stays. When the wind can't keep up you can keep buying turbines until the money runs out, or demolish and rebuild with steam.
+
+| Stage | What changes |
+|---|---|
+| 1. First Light | Tutorial: build a turbine on the hill and wire it to the first house. |
+| 2. Growing Town | Four houses need 48 power. Wind alone won't stretch that far on your budget: steam will. |
+| 3. Still Nights | The wind comes in gusts with calm spells. Keep the lights on for 20 s: batteries help. |
+| 4. Clean Air | Smog: CO2 must come down to 450 ppm. Plant trees and go easy on the coal. |
+| 5. Hot Springs | An earthquake opens a volcanic vent and three more houses appear. A boiler over the vent boils for free. Insurance pays for anything of yours the quake destroys. |
+
+The campaign saves itself next to the exe (`ElementSandbox-campaign.sav`) when you leave it, when you close the game, and at the start of each stage. `R` twice restarts the current stage.
+
 ## Levels
 
 Pick a level from the main menu. Each one gives you a few materials in limited amounts, shown as the numbers on the palette buttons. Erasing your own material refunds it. To win, keep every beacon powered for 3 seconds (the later levels ask for longer, so you have to ride out what they throw at you). Your progress is saved in `ElementSandbox-progress.txt` next to the exe.

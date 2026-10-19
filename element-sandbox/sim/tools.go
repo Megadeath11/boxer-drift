@@ -19,6 +19,16 @@ func (s *Sim) eachInBrush(cx, cy, r int, f func(x, y, i int)) {
 // Paint places material m in a circle. Without replace it only fills air.
 // At most limit cells are placed (limit < 0: no limit); it returns how many.
 func (s *Sim) Paint(cx, cy, r int, m Mat, replace bool, limit int) int {
+	return s.paint(cx, cy, r, m, replace, limit, 0)
+}
+
+// Build is Paint for the campaign: it only fills air, and marks what it
+// places as the player's, so it can be demolished for a refund.
+func (s *Sim) Build(cx, cy, r int, m Mat, limit int) int {
+	return s.paint(cx, cy, r, m, false, limit, fBuilt)
+}
+
+func (s *Sim) paint(cx, cy, r int, m Mat, replace bool, limit int, flags uint8) int {
 	st := mats[m].State
 	density := float32(1)
 	if st == SPowder || st == SLiquid || st == SGas || st == SFire {
@@ -34,9 +44,43 @@ func (s *Sim) Paint(cx, cy, r int, m Mat, replace bool, limit int) int {
 			return
 		}
 		s.put(i, m)
+		c.Flags |= flags
 		placed++
 	})
 	return placed
+}
+
+// Place puts one player-built cell of m at (x, y) (a piece of a kit).
+func (s *Sim) Place(x, y int, m Mat) {
+	if in(x, y) {
+		i := y*W + x
+		s.put(i, m)
+		s.Cells[i].Flags |= fBuilt
+	}
+}
+
+// Open reports whether (x, y) is in the world and holds only air or gas,
+// so something can be built there.
+func (s *Sim) Open(x, y int) bool {
+	if !in(x, y) {
+		return false
+	}
+	st := mats[s.Cells[y*W+x].M].State
+	return st == SEmpty || st == SGas
+}
+
+// Demolish removes the player's own buildings in a circle and reports how
+// many cells of each material it removed.
+func (s *Sim) Demolish(cx, cy, r int) (removed [NumMats]int) {
+	s.eachInBrush(cx, cy, r, func(x, y, i int) {
+		c := &s.Cells[i]
+		if c.Flags&fBuilt == 0 || c.Flags&fFixed != 0 {
+			return
+		}
+		removed[c.M]++
+		*c = Cell{T: s.Ambient, Flags: s.clock}
+	})
+	return
 }
 
 // Erase removes everything in a circle except fixed level layout, and
@@ -68,6 +112,9 @@ func (s *Sim) Fill(x0, y0, x1, y1 int, m Mat, fixed bool) {
 
 // IsFixed reports whether the cell at index i is protected level layout.
 func (c *Cell) IsFixed() bool { return c.Flags&fFixed != 0 }
+
+// IsBuilt reports whether the player built this cell (in the campaign).
+func (c *Cell) IsBuilt() bool { return c.Flags&fBuilt != 0 }
 
 // IsPowered reports whether the cell is a running consumer or a live wire.
 func (c *Cell) IsPowered() bool { return c.Flags&fPowered != 0 }

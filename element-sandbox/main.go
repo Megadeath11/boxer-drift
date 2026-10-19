@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	"elementsandbox/campaign"
 	"elementsandbox/levels"
 	"elementsandbox/sim"
 
@@ -45,6 +46,8 @@ const (
 	toolCool
 	toolWind
 	toolBomb
+	toolKit      // campaign: buy and place a ready-made kit
+	toolDemolish // campaign: pull down your own buildings for a refund
 )
 
 type entry struct {
@@ -57,6 +60,8 @@ type entry struct {
 	w     int // button width
 	// budget is how many more cells may be placed in a level (-1 = unlimited)
 	budget int
+	price  float64 // campaign: cost of the kit, or of one cell of material
+	kit    *campaign.Kit
 }
 
 type header struct {
@@ -103,7 +108,7 @@ type Game struct {
 	drawing    bool
 
 	mode     screenMode
-	level    int // index into levels.All, or -1 for sandbox
+	level    int // index into levels.All, or levelSandbox / levelCampaign
 	hold     int // frames every beacon has been powered
 	lframe   int // frames since the level started (drives scripted events)
 	won      bool
@@ -115,6 +120,12 @@ type Game struct {
 	// so erasing refunds only the player's own material
 	placed    [sim.NumMats]int
 	clearAskT int // frames left to confirm clearing the sandbox
+
+	camp       *campaign.State // the campaign in progress (level == levelCampaign)
+	campStart  []byte          // save from the start of the current stage, for R
+	campFree   bool            // campaign finished: free building, no goal
+	campSaved  int             // stage of the campaign save on disk, or -1
+	restartAsk int             // frames left to confirm restarting a stage
 	// waitRelease ignores the mouse until the click that closed a menu or
 	// overlay is released, so it doesn't also paint
 	waitRelease bool
@@ -134,6 +145,7 @@ func newGame() *Game {
 		level:    -1,
 		unlocked: loadProgress(),
 	}
+	g.campSaved = savedCampaignStage()
 	return g
 }
 
@@ -236,14 +248,22 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	}
+	if ebiten.IsWindowBeingClosed() {
+		g.saveCampaign()
+		return ebiten.Termination
+	}
 	if g.mode == modeMenu {
 		return g.updateMenu()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.saveCampaign()
 		g.mode = modeMenu
 		return nil
 	}
 	if g.level >= 0 && g.updateLevelOverlays() {
+		return nil
+	}
+	if g.level == levelCampaign && g.updateCampaignOverlays() {
 		return nil
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
@@ -258,7 +278,7 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) || inpututil.IsKeyJustPressed(ebiten.KeyF1) {
 		g.help = !g.help
 	}
-	if g.level < 0 { // sandbox-only controls: levels set their own world
+	if g.level == levelSandbox { // sandbox-only controls: levels set their own world
 		if inpututil.IsKeyJustPressed(ebiten.KeyO) {
 			if g.sim.OpenTop {
 				g.sim.AddRoof(roofCells)
@@ -324,8 +344,14 @@ func (g *Game) Update() error {
 			g.sim.Wind.Global = 0
 		}
 	} else if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-		g.startLevel(g.level)
-		return nil
+		if g.level >= 0 {
+			g.startLevel(g.level)
+			return nil
+		}
+		g.askRestartStage()
+	}
+	if g.restartAsk > 0 {
+		g.restartAsk--
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyBracketRight) || inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
 		g.brush = min(g.brush+1, maxBrush)
@@ -370,6 +396,9 @@ func (g *Game) Update() error {
 			if left && g.entries[g.sel].tool == toolBomb {
 				g.sim.Explode(sx, sy, 4+float32(g.brush)*0.8)
 			}
+			if left && g.entries[g.sel].tool == toolKit {
+				g.buyKit(g.entries[g.sel].kit, sx, sy)
+			}
 		}
 		g.applyTool(g.lastX, g.lastY, sx, sy, right)
 		g.lastX, g.lastY = sx, sy
@@ -379,11 +408,14 @@ func (g *Game) Update() error {
 	}
 
 	if !g.paused || inpututil.IsKeyJustPressed(ebiten.KeyN) {
-		if g.level >= 0 {
+		switch {
+		case g.level >= 0:
 			levelAt(g.level).Step(g.sim, g.lframe)
 			g.lframe++
 			g.checkGoal()
-		} else {
+		case g.level == levelCampaign:
+			g.camp.Update(g.sim, g.entries[g.sel].label)
+		default:
 			g.sim.Step()
 		}
 	}
@@ -394,7 +426,7 @@ func (g *Game) Update() error {
 // and right-click erasing mustn't sneak around that).
 func (g *Game) canErase() bool {
 	for _, e := range g.entries {
-		if e.tool == toolErase {
+		if e.tool == toolErase || e.tool == toolDemolish {
 			return true
 		}
 	}
@@ -432,8 +464,19 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 		t := float64(k+1) / float64(steps)
 		x := x0 + int(math.Round(float64(x1-x0)*t))
 		y := y0 + int(math.Round(float64(y1-y0)*t))
+		if g.level == levelCampaign && (erase || e.tool == toolDemolish) {
+			g.demolish(x, y, r)
+			continue
+		}
 		if erase || e.tool == toolErase {
 			g.refund(g.sim.Erase(x, y, r))
+			continue
+		}
+		if g.level == levelCampaign && e.tool == toolMat {
+			if g.camp.Paint(g.sim, x, y, r, e.mat) == 0 && g.camp.Affordable(e.mat) == 0 {
+				g.say("Not enough money for " + e.label + ". Demolish something for a refund.")
+				return
+			}
 			continue
 		}
 		switch e.tool {
@@ -532,6 +575,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.level >= 0 {
 		g.drawLevelHUD(screen)
 	}
+	if g.level == levelCampaign {
+		g.drawCampaign(screen)
+	}
 	if g.help {
 		g.drawHelp(screen)
 	}
@@ -629,6 +675,8 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 	title := "ELEMENT SANDBOX"
 	if g.level >= 0 {
 		title = fmt.Sprintf("LEVEL %d", g.level+1)
+	} else if g.level == levelCampaign {
+		title = "SHOP"
 	}
 	g.text(screen, title, simW+8, 5, colAccent)
 	list := screen.SubImage(image.Rect(simW, listTop, screenW, listBot)).(*ebiten.Image)
@@ -648,8 +696,9 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 		}
 		vector.DrawFilledRect(list, x, y, float32(e.w), btnH, bg, false)
 		vector.DrawFilledRect(list, x+2, y+3, 9, 9, e.col, false)
+		vector.StrokeRect(list, x+2, y+3, 9, 9, 1, color.RGBA{70, 74, 90, 255}, false) // dark swatches (coal) stay visible
 		tc := colText
-		if e.budget == 0 {
+		if e.budget == 0 || (g.level == levelCampaign && e.price > g.camp.Money) {
 			tc = colDim
 		}
 		if k == g.sel {
@@ -657,8 +706,11 @@ func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 			tc = colAccent
 		}
 		label := e.label
-		if e.budget >= 0 {
+		if e.budget >= 0 || e.price > 0 {
 			n := fmt.Sprint(e.budget)
+			if e.price > 0 {
+				n = priceTag(e.price)
+			}
 			if fit := (e.w - 21 - len(n)*7) / 7; len(label) > fit {
 				label = label[:max(1, fit)]
 			}
@@ -707,7 +759,7 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 		state = "PAUSED (N = step)"
 	}
 	roof := ""
-	if g.level < 0 { // only the sandbox lets you change it
+	if g.level == levelSandbox { // only the sandbox lets you change it
 		roof = " | Roof on"
 		if g.sim.OpenTop {
 			roof = " | Roof off"
@@ -741,7 +793,8 @@ var helpLines = []string{
 	"O  roof on/off   C twice  clear everything",
 	"K  next season   L  lock season",
 	"J  seasons on/off   P  weather on/off",
-	"R  restart level    Esc  main menu",
+	"R  restart level (campaign: R twice)",
+	"Esc  main menu (the campaign saves itself)",
 	"F11  fullscreen     H / F1  this help",
 	"",
 	"Power: Turbines (steam / wind) and Thermo Gens",
@@ -797,6 +850,7 @@ func main() {
 	ebiten.SetWindowTitle("Element Sandbox")
 	ebiten.SetWindowIcon(windowIcons())
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	ebiten.SetWindowClosingHandled(true) // so the campaign saves on close
 	if err := ebiten.RunGame(newGame()); err != nil {
 		log.Fatal(err)
 	}

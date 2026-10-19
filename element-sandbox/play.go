@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"elementsandbox/campaign"
 	"elementsandbox/levels"
 	"elementsandbox/sim"
 
@@ -21,9 +22,9 @@ import (
 
 const (
 	menuBtnW = 330 // one column; the levels sit in two columns
-	menuBtnH = 30
-	menuGap  = 6
-	menuTop  = 210
+	menuBtnH = 27
+	menuGap  = 4
+	menuTop  = 196
 	menuWide = 2*menuBtnW + menuGap
 )
 
@@ -38,6 +39,8 @@ const (
 	itemSandbox = -1
 	itemQuit    = -2
 	itemResume  = -3
+	itemCampNew = -4
+	itemCampOn  = -5
 )
 
 // menuItems lays the menu out: Resume (when a game is in progress) and
@@ -53,10 +56,19 @@ func (g *Game) menuItems() []menuItem {
 	}
 	if g.inGame {
 		name := "Sandbox"
-		if g.level >= 0 {
+		switch {
+		case g.level >= 0:
 			name = levels.All[g.level].Name
+		case g.level == levelCampaign:
+			name = "Campaign, " + g.camp.Cur().Name
 		}
 		wide("Resume  ("+name+")", itemResume)
+	}
+	if g.campSaved >= 0 {
+		wide("Campaign: continue  ("+campaign.Stages[g.campSaved].Name+")", itemCampOn)
+		wide("Campaign: start again  (replaces your save)", itemCampNew)
+	} else {
+		wide("Campaign  (story mode: start here, with a tutorial)", itemCampNew)
 	}
 	wide("Sandbox  (free play, every material)", itemSandbox)
 	rows := (len(levels.All) + 1) / 2
@@ -91,6 +103,10 @@ func (g *Game) updateMenu() error {
 			g.mode, g.waitRelease = modePlay, true
 		case itemSandbox:
 			g.startSandbox()
+		case itemCampNew:
+			g.startCampaign(false)
+		case itemCampOn:
+			g.startCampaign(true)
 		default:
 			g.startLevel(it.level)
 		}
@@ -125,6 +141,9 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		}
 		vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), menuBtnH, bg, false)
 		tc := colText
+		if it.level == itemCampNew || it.level == itemCampOn {
+			tc = colAccent // the place to start
+		}
 		label := it.label
 		switch {
 		case it.locked:
@@ -136,7 +155,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		if hover && !it.locked {
 			vector.StrokeRect(screen, float32(x)+0.5, float32(y)+0.5, float32(w)-1, menuBtnH-1, 1, colAccent, false)
 		}
-		g.text(screen, label, x+14, y+9, tc)
+		g.text(screen, label, x+14, y+7, tc)
 	}
 	hint := "F11 fullscreen   Esc in game returns here"
 	if g.inGame {
@@ -148,7 +167,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 // ---- starting modes ----
 
 func (g *Game) startSandbox() {
-	g.mode, g.level, g.inGame = modePlay, -1, true
+	g.mode, g.level, g.inGame = modePlay, levelSandbox, true
 	g.won, g.brief, g.hold, g.paused = false, false, 0, false
 	g.help = true
 	g.resetCamera()

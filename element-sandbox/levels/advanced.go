@@ -26,28 +26,45 @@ func winter(s *sim.Sim) {
 	s.AddRoof(Sc(3))
 }
 
-// erupt makes a volcano throw lava out of the crater at (x, y) for burst
-// frames out of every period frames.
-func erupt(x, y, period, burst int) func(s *sim.Sim, frame int) {
+// erupt makes a volcano erupt for burst frames out of every period frames:
+// a fountain of lava from the crater at (x, y), and a stream pouring from
+// a vent on its flank at (fx, fy) down the slope to its right.
+func erupt(x, y, fx, fy, period, burst int) func(s *sim.Sim, frame int) {
 	return func(s *sim.Sim, frame int) {
 		if frame%period >= burst || frame < 60*3 {
 			return
 		}
-		cx, cy := Sc(x), Sc(y)
-		for n := 0; n < 3*Sc(7); n++ {
-			k, dy := n%Sc(7)-Sc(7)/2, n/Sc(7)
-			h := uint32(frame*131+n*977) * 2654435761 // cheap deterministic noise
-			if h>>29 > 4 {
-				continue
+		spout := func(px, py, w, rows int, fountain bool) {
+			for n := 0; n < w*rows; n++ {
+				k, dy := n%w-w/2, n/w
+				c := s.At(px+k, py-dy)
+				if c.M == sim.Wall || c.IsFixed() {
+					continue // blast out any plug of cooled rock, but not the mountain
+				}
+				h := uint32(frame*131+n*977) * 2654435761 // cheap deterministic noise
+				if c.M == sim.Lava && h>>29 > 1 {
+					continue
+				}
+				s.Fill(px+k, py-dy, px+k+1, py-dy+1, sim.Lava, false)
+				c.T = 1500 // fresh from deep down
+				c.VX = float32(int(h>>8&255)-128) / 128 * 2 * sim.Res
+				if fountain && h>>29 == 0 {
+					c.VY = -float32(9+int(h>>16&7)) * sim.Res
+				} else if !fountain {
+					c.VX = 1.5 * sim.Res // the stream runs downhill, to the right
+				}
 			}
-			c := s.At(cx+k, cy-dy)
-			if c.M != sim.Empty {
-				continue
+		}
+		spout(Sc(x), Sc(y), Sc(7), 3, true)
+		spout(Sc(fx), Sc(fy), Sc(3), 2, false)
+		// while the volcano is active, the flow below the flank vent keeps
+		// being fed from inside, so it stays molten until it pools
+		for yy := Sc(fy - 10); yy < Sc(192); yy++ {
+			for xx := Sc(fx - 10); xx < Sc(fx+45); xx++ {
+				if c := s.At(xx, yy); c.M == sim.Lava && !c.IsFixed() && c.T < 1450 {
+					c.T = 1450
+				}
 			}
-			s.Fill(cx+k, cy-dy, cx+k+1, cy-dy+1, sim.Lava, false)
-			c.T = 1500 // fresh from deep down
-			c.VX = float32(int(h>>8&255)-128) / 128 * 3 * sim.Res
-			c.VY = -float32(9+int(h>>16&7)) * sim.Res
 		}
 	}
 }
@@ -152,7 +169,7 @@ var advanced = []Level{
 	},
 	{
 		Name: "11. Eruption",
-		Tick: erupt(180, 106, 60*8, 60*3),
+		Tick: erupt(180, 106, 197, 139, 60*8, 60*3),
 		Hold: 60 * 25,
 		Brief: []string{
 			"The beacon sits in a pit at the foot of a volcano",

@@ -188,6 +188,19 @@ func (s *Sim) deviceColor(c *Cell, info *MatInfo, i int, r, g, b float32) (float
 			return 255, 248, 190
 		}
 	case DevBeacon:
+		if c.M == House {
+			// brick walls with a grid of windows that light up when powered
+			if x%6 >= 2 && x%6 <= 3 && y%6 >= 2 && y%6 <= 3 {
+				if on {
+					return 255, 214, 120
+				}
+				return 34, 38, 52
+			}
+			if y%3 == 0 {
+				return r * 0.85, g * 0.85, b * 0.85
+			}
+			return r, g, b
+		}
 		if on {
 			p := float32(math.Sin(float64(s.Frame)*0.15))*0.5 + 0.5
 			return 80 + 100*p, 255, 120 + 80*p
@@ -287,6 +300,11 @@ func (s *Sim) glowRows(acc []float32, gw, ds, g0, g1 int) {
 				r, g, b = 0.8, 0.4, 0.1
 			case info.Device == DevLamp && c.Flags&fPowered != 0:
 				r, g, b = 1.0, 0.95, 0.7
+			case c.M == House:
+				if c.Flags&fPowered == 0 || x%6 < 2 || x%6 > 3 {
+					continue
+				}
+				r, g, b = 0.6, 0.45, 0.2
 			case info.Device == DevBeacon:
 				if c.Flags&fPowered != 0 {
 					r, g, b = 0.3, 1.0, 0.5

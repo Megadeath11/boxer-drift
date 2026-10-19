@@ -146,8 +146,11 @@ func (g *Game) drawClimate(screen *ebiten.Image) {
 }
 
 func (g *Game) ppmLimit() float32 {
-	if g.level < 0 {
-		return 0
+	switch {
+	case g.level >= 0:
+		return levelAt(g.level).MaxPPM
+	case g.level == levelCampaign && !g.campFree:
+		return g.camp.Cur().MaxPPM
 	}
-	return levelAt(g.level).MaxPPM
+	return 0
 }
