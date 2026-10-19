@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	"elementsandbox/levels"
 	"elementsandbox/sim"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -29,6 +30,8 @@ const (
 	btnW     = 98
 	btnH     = 15
 	maxBrush = 40
+	listTop  = 22           // sidebar palette area, scrolls
+	listBot  = screenH - 84 // material info lives below it
 )
 
 type tool int
@@ -49,13 +52,22 @@ type entry struct {
 	mat   sim.Mat
 	col   color.RGBA
 	desc  string
-	x, y  int
+	x, y  int // y is relative to the top of the scrolling list
+	// budget is how many more cells may be placed in a level (-1 = unlimited)
+	budget int
 }
 
 type header struct {
 	label string
 	y     int
 }
+
+type screenMode int
+
+const (
+	modeMenu screenMode = iota
+	modePlay
+)
 
 type Game struct {
 	sim      *sim.Sim
@@ -64,7 +76,8 @@ type Game struct {
 	face     text.Face
 	entries  []entry
 	headers  []header
-	infoY    int
+	listH    int
+	scroll   int
 	sel      int
 	brush    int
 	paused   bool
@@ -74,24 +87,57 @@ type Game struct {
 	lastX    int
 	lastY    int
 	drawing  bool
+
+	mode     screenMode
+	level    int // index into levels.All, or -1 for sandbox
+	hold     int // frames every beacon has been powered
+	won      bool
+	brief    bool // showing the level briefing
+	unlocked int  // levels the player may pick
+	// waitRelease ignores the mouse until the click that closed a menu or
+	// overlay is released, so it doesn't also paint
+	waitRelease bool
 }
 
 func newGame() *Game {
 	g := &Game{
-		sim:   sim.New(),
-		img:   ebiten.NewImage(sim.W, sim.H),
-		pix:   make([]byte, sim.W*sim.H*4),
-		face:  text.NewGoXFace(basicfont.Face7x13),
-		brush: 4,
-		help:  true,
+		sim:      sim.New(),
+		img:      ebiten.NewImage(sim.W, sim.H),
+		pix:      make([]byte, sim.W*sim.H*4),
+		face:     text.NewGoXFace(basicfont.Face7x13),
+		brush:    4,
+		level:    -1,
+		unlocked: loadProgress(),
 	}
-	g.buildPalette()
 	return g
 }
 
-func (g *Game) buildPalette() {
-	y := 24
+var toolEntries = map[string]entry{
+	levels.ToolErase: {label: "Erase", tool: toolErase, col: color.RGBA{60, 60, 70, 255}, desc: "Remove anything you placed. (Right mouse button also erases.)"},
+	levels.ToolFire:  {label: "Fire", tool: toolFire, col: color.RGBA{255, 140, 30, 255}, desc: "A flame: lights and heats whatever it touches. Hold it on hard-to-light fuels."},
+	levels.ToolHeat:  {label: "Heat", tool: toolHeat, col: color.RGBA{230, 60, 40, 255}, desc: "Pump heat in. Melt, boil, ignite."},
+	levels.ToolCool:  {label: "Cool", tool: toolCool, col: color.RGBA{60, 140, 255, 255}, desc: "Pull heat out. Freeze, condense, liquefy."},
+	levels.ToolWind:  {label: "Wind", tool: toolWind, col: color.RGBA{150, 200, 210, 255}, desc: "Drag to blow air in that direction."},
+	levels.ToolBomb:  {label: "Bomb", tool: toolBomb, col: color.RGBA{200, 200, 60, 255}, desc: "Click for an explosion (size = brush)."},
+}
+
+var groupOrder = []string{sim.GroupSolids, sim.GroupMetals, sim.GroupPower, sim.GroupPowders,
+	sim.GroupLiquids, sim.GroupMolten, sim.GroupGases}
+
+func matEntry(m sim.Mat, budget int) entry {
+	info := sim.Info(m)
+	return entry{label: info.Name, tool: toolMat, mat: m, col: info.Color, desc: info.Desc, budget: budget}
+}
+
+// buildPalette lays out the sidebar: everything in the sandbox, or only what
+// a level allows.
+func (g *Game) buildPalette(allow []levels.Allow) {
+	g.entries, g.headers, g.scroll = nil, nil, 0
+	y := 0
 	addGroup := func(name string, items []entry) {
+		if len(items) == 0 {
+			return
+		}
 		g.headers = append(g.headers, header{name, y})
 		y += 14
 		for k, e := range items {
@@ -101,37 +147,59 @@ func (g *Game) buildPalette() {
 		}
 		y += (len(items)+1)/2*(btnH+1) + 4
 	}
-	addGroup("TOOLS", []entry{
-		{label: "Erase", tool: toolErase, col: color.RGBA{60, 60, 70, 255}, desc: "Remove anything. (Right mouse button also erases.)"},
-		{label: "Fire", tool: toolFire, col: color.RGBA{255, 140, 30, 255}, desc: "A flame: lights and heats whatever it touches."},
-		{label: "Heat", tool: toolHeat, col: color.RGBA{230, 60, 40, 255}, desc: "Pump heat in. Melt, boil, ignite."},
-		{label: "Cool", tool: toolCool, col: color.RGBA{60, 140, 255, 255}, desc: "Pull heat out. Freeze, condense, liquefy."},
-		{label: "Wind", tool: toolWind, col: color.RGBA{150, 200, 210, 255}, desc: "Drag to blow air in that direction."},
-		{label: "Bomb", tool: toolBomb, col: color.RGBA{200, 200, 60, 255}, desc: "Click for an explosion (size = brush)."},
-	})
-	groups := []struct {
-		name string
-		st   sim.State
-	}{{"SOLIDS", sim.SSolid}, {"POWDERS", sim.SPowder}, {"LIQUIDS", sim.SLiquid}, {"GASES", sim.SGas}}
-	for _, gr := range groups {
-		var items []entry
+	var tools []entry
+	byGroup := map[string][]entry{}
+	if allow == nil {
+		for _, t := range []string{levels.ToolErase, levels.ToolFire, levels.ToolHeat, levels.ToolCool, levels.ToolWind, levels.ToolBomb} {
+			e := toolEntries[t]
+			e.budget = -1
+			tools = append(tools, e)
+		}
 		for m := sim.Mat(1); m < sim.NumMats; m++ {
-			info := sim.Info(m)
-			if info.State == gr.st {
-				items = append(items, entry{label: info.Name, tool: toolMat, mat: m, col: info.Color, desc: info.Desc})
+			if gr := sim.Info(m).Group; gr != "" {
+				byGroup[gr] = append(byGroup[gr], matEntry(m, -1))
 			}
 		}
-		addGroup(gr.name, items)
+	} else {
+		for _, a := range allow {
+			if a.Tool != "" {
+				e := toolEntries[a.Tool]
+				e.budget = -1
+				tools = append(tools, e)
+				continue
+			}
+			gr := sim.Info(a.Mat).Group
+			byGroup[gr] = append(byGroup[gr], matEntry(a.Mat, a.Budget))
+		}
 	}
-	g.infoY = y + 2
+	addGroup("TOOLS", tools)
+	for _, gr := range groupOrder {
+		addGroup(gr, byGroup[gr])
+	}
+	g.listH = y
+	g.sel = 0
 	for k, e := range g.entries {
-		if e.tool == toolMat && e.mat == sim.Sand {
+		if e.tool == toolMat && (allow != nil || e.mat == sim.Sand) {
 			g.sel = k
+			break
 		}
 	}
 }
 
 func (g *Game) Update() error {
+	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
+		ebiten.SetFullscreen(!ebiten.IsFullscreen())
+	}
+	if g.mode == modeMenu {
+		return g.updateMenu()
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.mode = modeMenu
+		return nil
+	}
+	if g.level >= 0 && g.updateLevelOverlays() {
+		return nil
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
 		g.paused = !g.paused
 	}
@@ -144,23 +212,25 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) || inpututil.IsKeyJustPressed(ebiten.KeyF1) {
 		g.help = !g.help
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyO) {
-		g.sim.OpenTop = !g.sim.OpenTop
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
-		g.sim.Clear()
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
-		ebiten.SetFullscreen(!ebiten.IsFullscreen())
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
-		g.sim.Wind.Global = float32(math.Min(float64(g.sim.Wind.Global+0.5), 5))
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
-		g.sim.Wind.Global = float32(math.Max(float64(g.sim.Wind.Global-0.5), -5))
-	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
-		g.sim.Wind.Global = 0
+	if g.level < 0 { // sandbox-only controls: levels set their own world
+		if inpututil.IsKeyJustPressed(ebiten.KeyO) {
+			g.sim.OpenTop = !g.sim.OpenTop
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyC) {
+			g.sim.Clear()
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyRight) {
+			g.sim.Wind.Global = float32(math.Min(float64(g.sim.Wind.Global+0.5), 5))
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyLeft) {
+			g.sim.Wind.Global = float32(math.Max(float64(g.sim.Wind.Global-0.5), -5))
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
+			g.sim.Wind.Global = 0
+		}
+	} else if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		g.startLevel(g.level)
+		return nil
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyBracketRight) || inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
 		g.brush = min(g.brush+1, maxBrush)
@@ -168,25 +238,30 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyBracketLeft) || inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
 		g.brush = max(g.brush-1, 0)
 	}
+	mx, my := ebiten.CursorPosition()
 	if _, wy := ebiten.Wheel(); wy != 0 {
-		if wy > 0 {
+		switch {
+		case mx >= simW: // scroll the palette
+			g.scroll -= int(wy * 24)
+			g.scroll = max(0, min(g.scroll, g.listH-(listBot-listTop)))
+		case wy > 0:
 			g.brush = min(g.brush+1, maxBrush)
-		} else {
+		default:
 			g.brush = max(g.brush-1, 0)
 		}
 	}
-
-	mx, my := ebiten.CursorPosition()
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && mx >= simW {
-		for k, e := range g.entries {
-			if mx >= e.x && mx < e.x+btnW && my >= e.y && my < e.y+btnH {
-				g.sel = k
-			}
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+		if k := g.entryAt(mx, my); k >= 0 {
+			g.sel = k
 		}
 	}
 
 	left := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	right := ebiten.IsMouseButtonPressed(ebiten.MouseButtonRight)
+	if g.waitRelease {
+		g.waitRelease = left || right
+		left, right = false, false
+	}
 	inSim := mx >= 0 && mx < simW && my >= 0 && my < simH
 	if inSim && (left || right) {
 		sx, sy := mx/scale, my/scale
@@ -205,8 +280,25 @@ func (g *Game) Update() error {
 
 	if !g.paused || inpututil.IsKeyJustPressed(ebiten.KeyN) {
 		g.sim.Step()
+		if g.level >= 0 {
+			g.checkGoal()
+		}
 	}
 	return nil
+}
+
+// entryAt returns the palette entry under the mouse, or -1.
+func (g *Game) entryAt(mx, my int) int {
+	if mx < simW || my < listTop || my >= listBot {
+		return -1
+	}
+	for k, e := range g.entries {
+		y := listTop + e.y - g.scroll
+		if mx >= e.x && mx < e.x+btnW && my >= y && my < y+btnH {
+			return k
+		}
+	}
+	return -1
 }
 
 // applyTool applies the selected tool along the stroke from (x0,y0) to (x1,y1).
@@ -226,21 +318,33 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 		t := float64(k+1) / float64(steps)
 		x := x0 + int(math.Round(float64(x1-x0)*t))
 		y := y0 + int(math.Round(float64(y1-y0)*t))
-		if erase {
-			g.sim.Erase(x, y, r)
+		if erase || e.tool == toolErase {
+			g.refund(g.sim.Erase(x, y, r))
 			continue
 		}
 		switch e.tool {
 		case toolMat:
-			g.sim.Paint(x, y, r, e.mat, replace)
-		case toolErase:
-			g.sim.Erase(x, y, r)
+			placed := g.sim.Paint(x, y, r, e.mat, replace, e.budget)
+			if e.budget >= 0 {
+				g.entries[g.sel].budget -= placed
+				e.budget -= placed
+			}
 		case toolFire:
 			g.sim.Ignite(x, y, r)
 		case toolHeat:
 			g.sim.AddHeat(x, y, r, 40)
 		case toolCool:
 			g.sim.AddHeat(x, y, r, -40)
+		}
+	}
+}
+
+// refund gives budget back for erased cells of limited materials.
+func (g *Game) refund(removed [sim.NumMats]int) {
+	for k := range g.entries {
+		e := &g.entries[k]
+		if e.tool == toolMat && e.budget >= 0 {
+			e.budget += removed[e.mat]
 		}
 	}
 }
@@ -265,6 +369,10 @@ func (g *Game) text(dst *ebiten.Image, s string, x, y int, c color.Color) {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	if g.mode == modeMenu {
+		g.drawMenu(screen)
+		return
+	}
 	g.sim.Render(g.pix, g.view)
 	g.img.WritePixels(g.pix)
 	op := &ebiten.DrawImageOptions{}
@@ -283,6 +391,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	g.drawSidebar(screen, mx, my)
 	g.drawStatus(screen, mx, my)
+	if g.level >= 0 {
+		g.drawLevelHUD(screen)
+	}
 	if g.help {
 		g.drawHelp(screen)
 	}
@@ -336,35 +447,66 @@ func (g *Game) drawWind(screen *ebiten.Image) {
 
 func (g *Game) drawSidebar(screen *ebiten.Image, mx, my int) {
 	vector.DrawFilledRect(screen, simW, 0, sideW, screenH, colPanel, false)
-	g.text(screen, "ELEMENT SANDBOX", simW+8, 5, colAccent)
-	for _, h := range g.headers {
-		g.text(screen, h.label, simW+4, h.y, colDim)
+	title := "ELEMENT SANDBOX"
+	if g.level >= 0 {
+		title = "LEVEL " + levels.All[g.level].Name[:1]
 	}
-	hover := -1
+	g.text(screen, title, simW+8, 5, colAccent)
+	list := screen.SubImage(image.Rect(simW, listTop, screenW, listBot)).(*ebiten.Image)
+	for _, h := range g.headers {
+		g.text(list, h.label, simW+4, listTop+h.y-g.scroll, colDim)
+	}
+	hover := g.entryAt(mx, my)
 	for k, e := range g.entries {
-		x, y := float32(e.x), float32(e.y)
-		bg := color.RGBA{36, 39, 50, 255}
-		if mx >= e.x && mx < e.x+btnW && my >= e.y && my < e.y+btnH {
-			bg = color.RGBA{52, 56, 72, 255}
-			hover = k
+		ey := listTop + e.y - g.scroll
+		if ey+btnH < listTop || ey > listBot {
+			continue
 		}
-		vector.DrawFilledRect(screen, x, y, btnW, btnH, bg, false)
-		vector.DrawFilledRect(screen, x+2, y+3, 9, 9, e.col, false)
+		x, y := float32(e.x), float32(ey)
+		bg := color.RGBA{36, 39, 50, 255}
+		if k == hover {
+			bg = color.RGBA{52, 56, 72, 255}
+		}
+		vector.DrawFilledRect(list, x, y, btnW, btnH, bg, false)
+		vector.DrawFilledRect(list, x+2, y+3, 9, 9, e.col, false)
 		tc := colText
+		if e.budget == 0 {
+			tc = colDim
+		}
 		if k == g.sel {
-			vector.StrokeRect(screen, x+0.5, y+0.5, btnW-1, btnH-1, 1, colAccent, false)
+			vector.StrokeRect(list, x+0.5, y+0.5, btnW-1, btnH-1, 1, colAccent, false)
 			tc = colAccent
 		}
-		g.text(screen, e.label, e.x+14, e.y+1, tc)
+		label := e.label
+		if e.budget >= 0 {
+			n := fmt.Sprint(e.budget)
+			if len(label) > 12-len(n) {
+				label = label[:max(1, 12-len(n))]
+			}
+			g.text(list, n, e.x+btnW-3-len(n)*7, ey+1, colDim)
+		}
+		g.text(list, label, e.x+14, ey+1, tc)
 	}
+	if g.listH > listBot-listTop { // scrollbar
+		h := float32(listBot-listTop) * float32(listBot-listTop) / float32(g.listH)
+		y := listTop + float32(g.scroll)/float32(g.listH)*float32(listBot-listTop)
+		vector.DrawFilledRect(screen, screenW-3, y, 2, h, colDim, false)
+	}
+	vector.StrokeLine(screen, simW, listBot+2, screenW, listBot+2, 1, color.RGBA{50, 54, 66, 255}, false)
 	show := g.sel
 	if hover >= 0 {
 		show = hover
 	}
-	y := g.infoY
+	if show >= len(g.entries) {
+		return
+	}
+	y := listBot + 6
 	g.text(screen, g.entries[show].label, simW+6, y, colAccent)
 	for _, line := range wrap(g.entries[show].desc, 26) {
 		y += 13
+		if y > screenH-14 {
+			break
+		}
 		g.text(screen, line, simW+6, y, colText)
 	}
 }
@@ -389,8 +531,9 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 	if g.view == sim.ViewHeat {
 		view = "heat"
 	}
-	s := fmt.Sprintf("%s | Brush %d | Wind %s | Sky %s | View %s | H = help | %.0f FPS",
-		state, g.brush, wind, top, view, ebiten.ActualFPS())
+	st := g.sim.Stats
+	s := fmt.Sprintf("%s | Brush %d | Wind %s | Sky %s | View %s | Power %.0f/%.0f | H help | %.0f FPS",
+		state, g.brush, wind, top, view, st.Used, st.Generated, ebiten.ActualFPS())
 	g.text(screen, s, 8, simH+7, colText)
 	if mx >= 0 && mx < simW && my >= 0 && my < simH {
 		c := g.sim.At(mx/scale, my/scale)
@@ -411,13 +554,15 @@ var helpLines = []string{
 	"T               heat (temperature) view",
 	"V               show wind / air flow",
 	"O               open / close the sky for gases",
-	"C               clear everything",
+	"C               clear everything (sandbox)",
+	"R               restart level",
+	"Esc             main menu",
 	"F11             fullscreen",
 	"H / F1          show / hide this help",
 	"",
-	"Try: gasoline vs diesel with Fire, salt on ice,",
-	"water on lava, thermite on iron, hydrogen + fire,",
-	"dry ice fog, steam rising and raining back down.",
+	"Power: Turbines (steam / wind) and Thermo Gens",
+	"make power. Metal carries it to Lamps, Heaters,",
+	"Batteries and Beacons. Status bar: used/made.",
 }
 
 func (g *Game) drawHelp(screen *ebiten.Image) {

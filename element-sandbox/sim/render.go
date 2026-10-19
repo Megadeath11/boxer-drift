@@ -1,6 +1,9 @@
 package sim
 
-import "image/color"
+import (
+	"image/color"
+	"math"
+)
 
 // Render view modes.
 const (
@@ -20,7 +23,7 @@ func (s *Sim) Render(pix []byte, view int) {
 				r, g, b = r*0.45, g*0.45, b*0.45
 			}
 		} else {
-			r, g, b = s.cellColor(c, bg)
+			r, g, b = s.cellColor(c, bg, i)
 		}
 		o := i * 4
 		pix[o] = u8(r)
@@ -30,7 +33,7 @@ func (s *Sim) Render(pix []byte, view int) {
 	}
 }
 
-func (s *Sim) cellColor(c *Cell, bg color.RGBA) (r, g, b float32) {
+func (s *Sim) cellColor(c *Cell, bg color.RGBA, i int) (r, g, b float32) {
 	info := &mats[c.M]
 	br, bgc, bb := float32(bg.R), float32(bg.G), float32(bg.B)
 	sh := float32(c.Shade)
@@ -57,6 +60,15 @@ func (s *Sim) cellColor(c *Cell, bg color.RGBA) (r, g, b float32) {
 	}
 	col := info.Color
 	r, g, b = float32(col.R)+sh, float32(col.G)+sh, float32(col.B)+sh
+	if info.Device != DevNone {
+		r, g, b = s.deviceColor(c, info, i, r, g, b)
+	} else if info.Conductive && c.Flags&fPowered != 0 && info.State == SSolid {
+		// live wire: faint electric shimmer
+		k := 0.12 + s.rf()*0.1
+		r += (255 - r) * k
+		g += (240 - g) * k
+		b += (150 - b) * k
+	}
 	if info.State == SGas {
 		a := info.Alpha
 		if c.M == Smoke {
@@ -121,4 +133,48 @@ func u8(v float32) uint8 {
 		return 255
 	}
 	return uint8(v)
+}
+
+func (s *Sim) deviceColor(c *Cell, info *MatInfo, i int, r, g, b float32) (float32, float32, float32) {
+	x, y := i%W, i/W
+	on := c.Flags&fPowered != 0
+	switch info.Device {
+	case DevTurbine:
+		// diagonal blades that sweep faster the more power it makes
+		if (x+y+int(c.VY))%4 < 2 {
+			r, g, b = r+40, g+40, b+40
+		}
+		k := clamp(c.VX/3, 0, 1)
+		b += 50 * k
+	case DevThermoGen:
+		if (x+y)%3 == 0 {
+			r, g, b = r+40, g+20, b-20
+		}
+		k := clamp(c.VX/8, 0, 1)
+		r += 120 * k
+		g += 50 * k
+	case DevBattery:
+		f := float32(c.Life) / batteryCap
+		r, g, b = 30+20*f, 60+180*f, 40+40*f
+		if (x+y)%5 == 0 {
+			r, g, b = r*0.7, g*0.7, b*0.7
+		}
+	case DevLamp:
+		if on {
+			return 255, 248, 190
+		}
+	case DevBeacon:
+		if on {
+			p := float32(math.Sin(float64(s.Frame)*0.15))*0.5 + 0.5
+			return 80 + 100*p, 255, 120 + 80*p
+		}
+		if (s.Frame/20)%2 == 0 {
+			return 120, 40, 40
+		}
+	case DevHeater:
+		if (x+y)%2 == 0 {
+			r, g, b = r*0.7, g*0.7, b*0.7
+		}
+	}
+	return r, g, b
 }

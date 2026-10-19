@@ -27,6 +27,8 @@ type Cell struct {
 const (
 	fBurning = 1 << 0
 	fClock   = 1 << 1
+	fFixed   = 1 << 2 // part of a level's layout: the player can't erase it
+	fPowered = 1 << 3
 )
 
 // Sim is the whole world.
@@ -35,8 +37,17 @@ type Sim struct {
 	Wind    *Wind
 	OpenTop bool // gases may escape through the top edge
 	Frame   int
+	Stats   PowerStats
 	clock   uint8
 	rng     uint32
+
+	visit     []uint32
+	visitMark uint32
+	members   []int32
+	blob      []int32
+	blobDone  []uint32
+	blobOn    []bool
+	blobMark  uint32
 }
 
 var dx8 = [8]int{-1, 0, 1, -1, 1, -1, 0, 1}
@@ -132,6 +143,7 @@ func (s *Sim) Step() {
 		}
 	}
 	s.heat()
+	s.power()
 }
 
 func (s *Sim) update(x, y int) {
@@ -148,6 +160,9 @@ func (s *Sim) update(x, y int) {
 		return
 	}
 	info := &mats[c.M]
+	if c.M == Lava && c.Flags&fFixed != 0 {
+		c.T = max(c.T, 1250) // a level's volcanic vent never cools
+	}
 
 	if s.phase(x, y, i) {
 		return
@@ -165,6 +180,10 @@ func (s *Sim) update(x, y int) {
 		return
 	}
 	switch info.State {
+	case SSolid:
+		if info.Device != DevNone {
+			s.device(x, y, i)
+		}
 	case SPowder:
 		s.movePowder(x, y, i)
 	case SLiquid:
@@ -305,8 +324,7 @@ func (s *Sim) react(x, y, i int) bool {
 			return true
 		}
 	case Acid:
-		switch n.M {
-		case Empty, Acid, Glass, Wall, Fire:
+		if n.M == Empty || n.M == Acid || n.M == Fire || mats[n.M].AcidProof {
 			return false
 		}
 		if mats[n.M].State == SGas || !s.chance(0.04) {
@@ -314,7 +332,7 @@ func (s *Sim) react(x, y, i int) bool {
 		}
 		prod := Empty
 		switch n.M {
-		case Metal, MoltenMetal, Rust:
+		case Metal, MoltenMetal, Rust, Aluminum, MoltenAluminum, Tin, Lead:
 			prod = Hydrogen // Fe + 2H+ -> Fe2+ + H2
 		case Stone, Gravel, Salt:
 			if s.chance(0.5) {
@@ -718,6 +736,14 @@ func (s *Sim) moveLiquid(x, y, i int) {
 	ci, moved := s.travel(x, y, i)
 	if moved || s.Cells[ci].M != m {
 		return
+	}
+	// thermal convection: warmer liquid rises through cooler liquid of the same kind
+	if y > 0 {
+		up := &s.Cells[i-W]
+		if up.M == m && c.T > up.T+3 && s.chance(0.5) {
+			s.swap(i, i-W)
+			return
+		}
 	}
 	if y+1 < H {
 		dir := s.sign()

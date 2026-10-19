@@ -75,7 +75,59 @@ const (
 	// Energy
 	Fire
 
+	// Metals (Iron is Metal above)
+	Copper
+	Aluminum
+	Lead
+	Tin
+	Titanium
+	Silver
+	Gold
+	Platinum
+
+	// Molten metals (Molten Iron is MoltenMetal above)
+	MoltenCopper
+	MoltenAluminum
+	MoltenLead
+	MoltenTin
+	MoltenTitanium
+	MoltenSilver
+	MoltenGold
+	MoltenPlatinum
+
+	// Power
+	Turbine
+	ThermoGen
+	Battery
+	Lamp
+	Heater
+	Beacon
+
 	NumMats
+)
+
+// Device is the electrical role of a material.
+type Device uint8
+
+const (
+	DevNone Device = iota
+	DevTurbine
+	DevThermoGen
+	DevBattery
+	DevLamp
+	DevHeater
+	DevBeacon
+)
+
+// Palette groups.
+const (
+	GroupSolids  = "SOLIDS"
+	GroupMetals  = "METALS"
+	GroupPower   = "POWER"
+	GroupPowders = "POWDERS"
+	GroupLiquids = "LIQUIDS"
+	GroupMolten  = "MOLTEN METALS"
+	GroupGases   = "GASES"
 )
 
 // MatInfo holds the physical and chemical properties of a material.
@@ -122,6 +174,15 @@ type MatInfo struct {
 	Hardness   float32 // resistance to explosions
 	Debris     Mat     // what it shatters into
 	CoolRate   float32 // relaxation toward ambient (air and gases)
+
+	// Electricity
+	Conductive bool    // carries electric power
+	Resist     float32 // electrical resistance: heats up when carrying power
+	Device     Device
+	Demand     float32 // power a consumer needs to run
+	AcidProof  bool
+
+	Group string // palette group ("" = hidden)
 }
 
 var mats [NumMats]MatInfo
@@ -139,12 +200,18 @@ func def(m Mat, name, desc string, st State, col color.RGBA, dens float32) *MatI
 		Hardness: 0.5, Alpha: 1,
 	}
 	switch st {
+	case SSolid:
+		mi.Group = GroupSolids
+	case SPowder:
+		mi.Group = GroupPowders
 	case SGas:
+		mi.Group = GroupGases
 		mi.Conduct = 0.03
 		mi.CoolRate = 0.002
 		mi.Alpha = 0.4
 		mi.WindDrag = 1
 	case SLiquid:
+		mi.Group = GroupLiquids
 		mi.Dispersion = 5
 	case SEmpty:
 		mi.Conduct = 0.02
@@ -165,7 +232,7 @@ func init() {
 
 	// ---- Solids ----
 	m = def(Wall, "Wall", "Indestructible, heat-insulating wall.", SSolid, rgb(85, 88, 98), 9999)
-	m.Conduct, m.Hardness = 0.001, 99
+	m.Conduct, m.Hardness, m.AcidProof = 0.001, 99, true
 
 	m = def(Stone, "Stone", "Rock. Melts into lava around 1200°C.", SSolid, rgb(118, 116, 112), 2600)
 	m.Conduct, m.Hardness, m.Debris = 0.06, 0.6, Gravel
@@ -179,9 +246,10 @@ func init() {
 	m = def(Metal, "Iron", "Conducts heat fast. Melts at 1538°C. Rusts in water.", SSolid, rgb(148, 153, 163), 7800)
 	m.Conduct, m.HeatCap, m.Hardness = 0.2, 1.2, 0.9
 	m.High, m.HighT, m.PhaseRate = MoltenMetal, 1538, 0.02
+	m.Group, m.Conductive, m.Resist = GroupMetals, true, 0.6
 
 	m = def(Glass, "Glass", "Acid-proof. Softens and melts ~1400°C.", SSolid, rgb(160, 205, 215), 2500)
-	m.Hardness, m.Debris = 0.2, Sand
+	m.Hardness, m.Debris, m.AcidProof = 0.2, Sand, true
 	m.High, m.HighT, m.PhaseRate = MoltenGlass, 1400, 0.02
 
 	m = def(Ice, "Ice", "Frozen water. Melts above 0°C. Salt melts it.", SSolid, rgb(170, 220, 250), 917)
@@ -257,6 +325,7 @@ func init() {
 	m.Conduct, m.HeatCap, m.Dispersion = 0.1, 3, 6
 	m.High, m.HighT, m.PhaseRate = Steam, 101, 0.04
 	m.Low, m.LowT = Ice, -21
+	m.Conductive, m.Resist = true, 20 // dissolved ions carry current, badly
 
 	m = def(Oil, "Oil", "Thick crude oil. Floats on water, burns smoky.", SLiquid, rgb(66, 48, 20), 900)
 	m.Conduct, m.HeatCap, m.Dispersion, m.Viscosity = 0.03, 1.5, 3, 0.3
@@ -285,8 +354,8 @@ func init() {
 	m = def(Acid, "Acid", "Dissolves almost anything except glass. Metal fizzes hydrogen.", SLiquid, rgb(120, 255, 60), 1500)
 	m.Conduct, m.HeatCap = 0.08, 2
 
-	m = def(Mercury, "Mercury", "Liquid metal, 13.5x denser than water.", SLiquid, rgb(190, 195, 205), 13500)
-	m.Conduct = 0.15
+	m = def(Mercury, "Mercury", "Liquid metal, 13.5x denser than water. Conducts electricity.", SLiquid, rgb(190, 195, 205), 13500)
+	m.Conduct, m.Conductive, m.Resist = 0.15, true, 3
 
 	m = def(LiquidN2, "Liquid N2", "Liquid nitrogen at -196°C. Flash-freezes, boils violently.", SLiquid, rgb(200, 232, 255), 808)
 	m.Conduct, m.HeatCap, m.SpawnT, m.Dispersion = 0.05, 1.5, -200, 7
@@ -299,6 +368,7 @@ func init() {
 	m = def(MoltenMetal, "Molten Iron", "Liquid iron at 1600°C+. Solidifies below 1500°C.", SLiquid, rgb(255, 140, 40), 7000)
 	m.Conduct, m.SpawnT, m.Dispersion, m.Viscosity = 0.2, 1700, 3, 0.3
 	m.Low, m.LowT, m.PhaseRate = Metal, 1500, 0.03
+	m.Group, m.Conductive, m.Resist = GroupMolten, true, 1.2
 
 	m = def(Mud, "Mud", "Wet dirt. Dries back to dirt when heated.", SLiquid, rgb(88, 60, 35), 1600)
 	m.Conduct, m.HeatCap, m.Dispersion, m.Viscosity = 0.06, 2, 2, 0.8
@@ -312,7 +382,7 @@ func init() {
 	// ---- Gases ----
 	m = def(Steam, "Steam", "Water vapor. Rises, condenses into rain below 100°C.", SGas, rgb(205, 205, 215), 0.6)
 	m.SpawnT, m.CoolRate, m.Alpha = 110, 0.0012, 0.55
-	m.Low, m.LowT, m.PhaseRate = Water, 98, 0.02
+	m.Low, m.LowT, m.PhaseRate = Water, 98, 0.08
 
 	m = def(Smoke, "Smoke", "Soot from fires. Drifts with the wind and fades.", SGas, rgb(62, 62, 66), 1.1)
 	m.Alpha = 0.8
@@ -348,4 +418,58 @@ func init() {
 	// ---- Energy ----
 	m = def(Fire, "Fire", "Flame. Ignites anything flammable it touches.", SFire, rgb(255, 160, 40), 0.3)
 	m.Conduct, m.SpawnT, m.WindDrag = 0.08, 1000, 1
+
+	// ---- Metals ----
+	// name, molten form, colour, density, thermal conductivity, melting point,
+	// electrical resistance (relative), hardness, acid-proof, acid gives H2
+	metal := func(m, molten Mat, name, desc string, col color.RGBA, dens, cond, melt, resist, hard float32, acidProof bool) {
+		mi := def(m, name, desc, SSolid, col, dens)
+		mi.Group, mi.Conductive, mi.Resist = GroupMetals, true, resist
+		mi.Conduct, mi.HeatCap, mi.Hardness, mi.AcidProof = cond, 1.1, hard, acidProof
+		mi.High, mi.HighT, mi.PhaseRate = molten, melt, 0.02
+		hot := color.RGBA{uint8(min(255, int(col.R)/2+140)), uint8(min(255, int(col.G)/2+70)), uint8(int(col.B) / 3), 255}
+		ml := def(molten, "Molten "+name, "Liquid "+name+". Solidifies below its melting point.", SLiquid, hot, dens*0.93)
+		ml.Group, ml.Conductive, ml.Resist = GroupMolten, true, resist*2
+		ml.Conduct, ml.HeatCap, ml.Dispersion, ml.Viscosity = cond, 1.1, 3, 0.25
+		ml.SpawnT, ml.AcidProof = melt+150, acidProof
+		ml.Low, ml.LowT, ml.PhaseRate = m, melt-10, 0.03
+	}
+	metal(Copper, MoltenCopper, "Copper", "Best value wire: conducts heat and electricity very well. Melts 1085°C.",
+		rgb(190, 110, 55), 8960, 0.2, 1085, 0.1, 0.8, false)
+	metal(Aluminum, MoltenAluminum, "Aluminum", "Light metal, good conductor. Melts at only 660°C. Acid fizzes hydrogen.",
+		rgb(196, 202, 210), 2700, 0.2, 660, 0.16, 0.6, false)
+	metal(Lead, MoltenLead, "Lead", "Very dense, soft, poor conductor. Melts at 327°C.",
+		rgb(88, 94, 110), 11340, 0.04, 327, 1.3, 0.4, false)
+	metal(Tin, MoltenTin, "Tin", "Soft metal used in solder. Melts at just 232°C.",
+		rgb(200, 200, 188), 7300, 0.07, 232, 0.65, 0.4, false)
+	metal(Titanium, MoltenTitanium, "Titanium", "Strong and acid-proof. Poor conductor. Melts 1668°C.",
+		rgb(160, 166, 178), 4500, 0.03, 1668, 2.5, 0.97, true)
+	metal(Silver, MoltenSilver, "Silver", "The best electrical conductor of all metals. Melts 962°C.",
+		rgb(222, 225, 232), 10490, 0.2, 962, 0.08, 0.6, false)
+	metal(Gold, MoltenGold, "Gold", "Precious. Never corrodes, acid can't touch it. Great conductor. Melts 1064°C.",
+		rgb(255, 196, 40), 19300, 0.2, 1064, 0.12, 0.5, true)
+	metal(Platinum, MoltenPlatinum, "Platinum", "Rarest precious metal, densest here. Acid-proof. Melts 1768°C.",
+		rgb(206, 214, 222), 21450, 0.1, 1768, 0.55, 0.7, true)
+
+	// ---- Power ----
+	dev := func(m Mat, name, desc string, col color.RGBA, d Device, demand float32) *MatInfo {
+		mi := def(m, name, desc, SSolid, col, 3000)
+		mi.Group, mi.Conductive, mi.Device, mi.Demand = GroupPower, true, d, demand
+		mi.Hardness, mi.Conduct = 0.7, 0.05
+		return mi
+	}
+	dev(Turbine, "Turbine", "Spins when steam or wind flows past it. Cools the steam back to water.",
+		rgb(112, 122, 134), DevTurbine, 0)
+	dev(ThermoGen, "Thermo Gen", "Thermoelectric generator: power from a hot side and a cold side.",
+		rgb(70, 66, 92), DevThermoGen, 0).Conduct = 0.06
+	dev(Battery, "Battery", "Stores spare power and releases it when generators fall short.",
+		rgb(40, 70, 45), DevBattery, 0)
+	dev(Lamp, "Lamp", "Lights up when powered. Uses 0.2 power per pixel.",
+		rgb(95, 90, 55), DevLamp, 0.2)
+	m = dev(Heater, "Heater", "Electric heating coil. Uses 0.5 power per pixel, gets red hot.",
+		rgb(110, 45, 35), DevHeater, 0.5)
+	m.Conduct = 0.12
+	m = dev(Beacon, "Beacon", "Level goal. Each beacon needs 12 power. Power them all to win.",
+		rgb(40, 75, 55), DevBeacon, 12)
+	m.Hardness = 99
 }

@@ -17,27 +17,60 @@ func (s *Sim) eachInBrush(cx, cy, r int, f func(x, y, i int)) {
 }
 
 // Paint places material m in a circle. Without replace it only fills air.
-func (s *Sim) Paint(cx, cy, r int, m Mat, replace bool) {
+// At most limit cells are placed (limit < 0: no limit); it returns how many.
+func (s *Sim) Paint(cx, cy, r int, m Mat, replace bool, limit int) int {
 	st := mats[m].State
 	density := float32(1)
 	if st == SPowder || st == SLiquid || st == SGas || st == SFire {
 		density = 0.45
 	}
+	placed := 0
 	s.eachInBrush(cx, cy, r, func(x, y, i int) {
 		c := &s.Cells[i]
-		if c.M == m || (!replace && c.M != Empty) || !s.chance(density) {
+		if limit >= 0 && placed >= limit {
+			return
+		}
+		if c.M == m || c.Flags&fFixed != 0 || (!replace && c.M != Empty) || !s.chance(density) {
 			return
 		}
 		s.put(i, m)
+		placed++
 	})
+	return placed
 }
 
-// Erase removes everything in a circle.
-func (s *Sim) Erase(cx, cy, r int) {
+// Erase removes everything in a circle except fixed level layout, and
+// reports how many cells of each material it removed.
+func (s *Sim) Erase(cx, cy, r int) (removed [NumMats]int) {
 	s.eachInBrush(cx, cy, r, func(x, y, i int) {
+		if s.Cells[i].Flags&fFixed != 0 {
+			return
+		}
+		removed[s.Cells[i].M]++
 		s.Cells[i] = Cell{T: Ambient, Flags: s.clock}
 	})
+	return
 }
+
+// Fill sets a rectangle [x0,x1)x[y0,y1) to material m. Fixed cells can't be
+// erased or painted over by the player.
+func (s *Sim) Fill(x0, y0, x1, y1 int, m Mat, fixed bool) {
+	for y := max(y0, 0); y < min(y1, H); y++ {
+		for x := max(x0, 0); x < min(x1, W); x++ {
+			i := y*W + x
+			s.put(i, m)
+			if fixed {
+				s.Cells[i].Flags |= fFixed
+			}
+		}
+	}
+}
+
+// IsFixed reports whether the cell at index i is protected level layout.
+func (c *Cell) IsFixed() bool { return c.Flags&fFixed != 0 }
+
+// IsPowered reports whether the cell is a running consumer or a live wire.
+func (c *Cell) IsPowered() bool { return c.Flags&fPowered != 0 }
 
 // AddHeat heats (dT>0) or cools (dT<0) everything in a circle.
 func (s *Sim) AddHeat(cx, cy, r int, dT float32) {
