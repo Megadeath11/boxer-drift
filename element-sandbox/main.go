@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	scale    = 3
+	scale    = 2
 	simW     = sim.W * scale
 	simH     = sim.H * scale
 	sideW    = 200
@@ -29,7 +29,8 @@ const (
 	screenH  = simH + statusH
 	btnW     = 98
 	btnH     = 15
-	maxBrush = 40
+	maxBrush = 60
+	glowDS   = 3            // glow map is 1/glowDS of the world's resolution
 	listTop  = 22           // sidebar palette area, scrolls
 	listBot  = screenH - 84 // material info lives below it
 )
@@ -72,6 +73,11 @@ const (
 type Game struct {
 	sim      *sim.Sim
 	img      *ebiten.Image
+	glowImg  *ebiten.Image
+	glowPix  []byte
+	demo     *sim.Sim // live scene behind the main menu
+	toast    string   // short message shown over the world
+	toastT   int
 	pix      []byte
 	face     text.Face
 	entries  []entry
@@ -92,6 +98,7 @@ type Game struct {
 	level    int // index into levels.All, or -1 for sandbox
 	hold     int // frames every beacon has been powered
 	won      bool
+	wonT     int  // frames since the level was won
 	brief    bool // showing the level briefing
 	unlocked int  // levels the player may pick
 	// waitRelease ignores the mouse until the click that closed a menu or
@@ -104,8 +111,11 @@ func newGame() *Game {
 		sim:      sim.New(),
 		img:      ebiten.NewImage(sim.W, sim.H),
 		pix:      make([]byte, sim.W*sim.H*4),
+		glowImg:  ebiten.NewImage(sim.W/glowDS, sim.H/glowDS),
+		glowPix:  make([]byte, (sim.W/glowDS)*(sim.H/glowDS)*4),
+		demo:     newDemo(),
 		face:     text.NewGoXFace(basicfont.Face7x13),
-		brush:    4,
+		brush:    6,
 		level:    -1,
 		unlocked: loadProgress(),
 	}
@@ -268,7 +278,7 @@ func (g *Game) Update() error {
 		if !g.drawing {
 			g.lastX, g.lastY = sx, sy
 			if left && g.entries[g.sel].tool == toolBomb {
-				g.sim.Explode(sx, sy, 4+float32(g.brush)*1.2)
+				g.sim.Explode(sx, sy, 4+float32(g.brush)*0.8)
 			}
 		}
 		g.applyTool(g.lastX, g.lastY, sx, sy, right)
@@ -324,6 +334,10 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 		}
 		switch e.tool {
 		case toolMat:
+			if e.budget == 0 {
+				g.say("Out of " + e.label + "! Erase some to get it back.")
+				return
+			}
 			placed := g.sim.Paint(x, y, r, e.mat, replace, e.budget)
 			if e.budget >= 0 {
 				g.entries[g.sel].budget -= placed
@@ -347,6 +361,11 @@ func (g *Game) refund(removed [sim.NumMats]int) {
 			e.budget += removed[e.mat]
 		}
 	}
+}
+
+// say shows a short message over the world for a couple of seconds.
+func (g *Game) say(msg string) {
+	g.toast, g.toastT = msg, 150
 }
 
 func clampf(v, lo, hi float32) float32 {
@@ -373,11 +392,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.drawMenu(screen)
 		return
 	}
-	g.sim.Render(g.pix, g.view)
-	g.img.WritePixels(g.pix)
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Scale(scale, scale)
-	screen.DrawImage(g.img, op)
+	g.drawWorld(screen, g.sim, g.view, false)
 
 	if g.showWind {
 		g.drawWind(screen)
@@ -386,7 +401,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	mx, my := ebiten.CursorPosition()
 	if mx < simW && my < simH {
 		r := float32(g.brush*scale) + 1.5
-		vector.StrokeCircle(screen, float32(mx), float32(my), r, 1, color.RGBA{255, 255, 255, 140}, true)
+		c := color.RGBA{255, 255, 255, 150}
+		if e := g.entries[g.sel]; e.tool == toolMat {
+			c = color.RGBA{e.col.R/2 + 100, e.col.G/2 + 100, e.col.B/2 + 100, 170}
+		}
+		vector.StrokeCircle(screen, float32(mx), float32(my), r, 1, c, true)
+	}
+	if g.paused {
+		g.banner(screen, "PAUSED  (Space to resume, N to step)", 40, colAccent, 255)
+	}
+	if g.toastT > 0 {
+		g.toastT--
+		g.banner(screen, g.toast, simH-60, colText, uint8(min(255, g.toastT*6)))
 	}
 
 	g.drawSidebar(screen, mx, my)
@@ -397,6 +423,43 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.help {
 		g.drawHelp(screen)
 	}
+}
+
+// drawWorld draws a simulation scaled up, with the bloom (glow) layer added
+// on top in the normal view. With fill it covers the whole window instead of
+// the play area (anchored to the bottom).
+func (g *Game) drawWorld(screen *ebiten.Image, s *sim.Sim, view int, fill bool) {
+	f, ty := float64(scale), 0.0
+	if fill {
+		f = float64(screenW) / sim.W
+		ty = screenH - sim.H*f
+	}
+	s.Render(g.pix, view)
+	g.img.WritePixels(g.pix)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Scale(f, f)
+	op.GeoM.Translate(0, ty)
+	screen.DrawImage(g.img, op)
+	if view != sim.ViewNormal {
+		return
+	}
+	s.Glow(g.glowPix, glowDS)
+	g.glowImg.WritePixels(g.glowPix)
+	gop := &ebiten.DrawImageOptions{Filter: ebiten.FilterLinear, Blend: ebiten.BlendLighter}
+	gop.GeoM.Scale(f*glowDS, f*glowDS)
+	gop.GeoM.Translate(0, ty)
+	gop.ColorScale.ScaleAlpha(0.85)
+	screen.DrawImage(g.glowImg, gop)
+}
+
+// banner draws a centred line of text on a dark strip over the world.
+func (g *Game) banner(screen *ebiten.Image, msg string, y int, c color.RGBA, alpha uint8) {
+	w := float32(len(msg)*7 + 24)
+	x := float32(simW)/2 - w/2
+	vector.DrawFilledRect(screen, x, float32(y), w, 22, color.RGBA{8, 10, 14, alpha * 3 / 4}, false)
+	c.A = alpha
+	c.R, c.G, c.B = uint8(int(c.R)*int(alpha)/255), uint8(int(c.G)*int(alpha)/255), uint8(int(c.B)*int(alpha)/255)
+	g.text(screen, msg, int(x)+12, y+4, c)
 }
 
 var whitePixel = func() *ebiten.Image {
@@ -609,6 +672,7 @@ func main() {
 	}
 	ebiten.SetWindowSize(w, h)
 	ebiten.SetWindowTitle("Element Sandbox")
+	ebiten.SetWindowIcon(windowIcons())
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	if err := ebiten.RunGame(newGame()); err != nil {
 		log.Fatal(err)

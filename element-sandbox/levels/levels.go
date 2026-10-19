@@ -34,13 +34,26 @@ type Level struct {
 // HoldFrames is how long every beacon must stay powered to win (3 s).
 const HoldFrames = 180
 
-func tool(name string) Allow          { return Allow{Tool: name, Budget: -1} }
-func mat(m sim.Mat, budget int) Allow { return Allow{Mat: m, Budget: budget} }
+// Levels are laid out on a 360x200 design grid and scaled up to the
+// simulation's resolution, so they keep their shape if the resolution changes.
 
-func wall(s *sim.Sim, x0, y0, x1, y1 int)             { s.Fill(x0, y0, x1, y1, sim.Wall, true) }
-func fixed(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat) { s.Fill(x0, y0, x1, y1, m, true) }
+// Sc converts a design-grid coordinate to simulation cells.
+func Sc(v int) int { return int(float64(v) * sim.Res) }
 
-func floor(s *sim.Sim) { wall(s, 0, sim.H-8, sim.W, sim.H) }
+func tool(name string) Allow { return Allow{Tool: name, Budget: -1} }
+
+// mat offers material m; budget is in design-grid cells and scales with area.
+func mat(m sim.Mat, budget int) Allow {
+	return Allow{Mat: m, Budget: int(float64(budget) * sim.Res * sim.Res)}
+}
+
+func fill(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat, fixed bool) {
+	s.Fill(Sc(x0), Sc(y0), Sc(x1), Sc(y1), m, fixed)
+}
+func wall(s *sim.Sim, x0, y0, x1, y1 int)             { fill(s, x0, y0, x1, y1, sim.Wall, true) }
+func fixed(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat) { fill(s, x0, y0, x1, y1, m, true) }
+
+func floor(s *sim.Sim) { wall(s, 0, 192, 360, 200) }
 
 // boiler builds an iron pot of water at x0..x0+70 with a turbine lid and a
 // copper lead rising from the lid to y=wireY. Returns the lead's x.
@@ -49,7 +62,7 @@ func boiler(s *sim.Sim, x0, wireY int, vent bool) int {
 	fixed(s, x0, 130, x0+3, 192, sim.Metal) // left side + leg
 	fixed(s, x1-3, 130, x1, 192, sim.Metal) // right side + leg
 	fixed(s, x0, 170, x1, 173, sim.Metal)   // bottom
-	s.Fill(x0+3, 150, x1-3, 170, sim.Water, false)
+	fill(s, x0+3, 150, x1-3, 170, sim.Water, false)
 	fixed(s, x0+3, 126, x1-3, 130, sim.Turbine) // lid: steam spins it
 	lead := x0 + 33
 	fixed(s, lead, wireY, lead+3, 126, sim.Copper)
@@ -73,7 +86,7 @@ var All = []Level{
 			"turbine, and the turbine powers the beacon.",
 			"There is a gap in the wire: bridge it with Copper.",
 		},
-		Allow: []Allow{mat(sim.Coal, 600), tool(ToolFire), mat(sim.Copper, 200), tool(ToolErase)},
+		Allow: []Allow{mat(sim.Coal, 600), tool(ToolFire), mat(sim.Copper, 300), tool(ToolErase)},
 		Build: func(s *sim.Sim) {
 			floor(s)
 			lead := boiler(s, 40, 100, false)
@@ -137,7 +150,7 @@ var All = []Level{
 			fixed(s, lead, 100, 150, 103, sim.Copper)
 			wall(s, 140, 160, 144, 192) // acid trench
 			wall(s, 226, 160, 230, 192)
-			s.Fill(144, 168, 226, 192, sim.Acid, false)
+			fill(s, 144, 168, 226, 192, sim.Acid, false)
 			wall(s, 182, 0, 188, 178) // wall down into the acid
 			fixed(s, 300, 176, 316, 192, sim.Beacon)
 		},

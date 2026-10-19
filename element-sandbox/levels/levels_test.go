@@ -8,8 +8,8 @@ import (
 
 // place fills a rectangle with a player material and returns the cell count.
 func place(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat) int {
-	s.Fill(x0, y0, x1, y1, m, false)
-	return (x1 - x0) * (y1 - y0)
+	s.Fill(Sc(x0), Sc(y0), Sc(x1), Sc(y1), m, false) // design-grid coordinates
+	return (Sc(x1) - Sc(x0)) * (Sc(y1) - Sc(y0))
 }
 
 // solutions apply each level's intended answer and return cells used per material.
@@ -20,7 +20,7 @@ var solutions = []func(s *sim.Sim) map[sim.Mat]int{
 		used[sim.Copper] = place(s, 158, 100, 192, 103, sim.Copper)
 		for x := 46; x < 105; x += 3 { // hold a small flame along the coal
 			for k := 0; k < 8; k++ {
-				s.Ignite(x, 181, 2)
+				s.Ignite(Sc(x), Sc(181), 3)
 				s.Step()
 			}
 		}

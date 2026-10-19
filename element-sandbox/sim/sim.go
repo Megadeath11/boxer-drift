@@ -3,14 +3,20 @@
 // combustion, explosions and a wind (air flow) field.
 package sim
 
-import "math"
+import (
+	"math"
+	"sync"
+)
 
 const (
-	W       = 360
-	H       = 200
+	W       = 540
+	H       = 300
 	Ambient = 20 // °C
-	gravity = 0.25
-	maxFall = 8
+	// Res is cells per unit of the original 360x200 world. Speeds and
+	// sizes are multiplied by it so things look the same at any resolution.
+	Res     = 1.5
+	gravity = 0.25 * Res
+	maxFall = 8 * Res
 )
 
 // Cell is one grid square.
@@ -44,6 +50,8 @@ type Sim struct {
 	visit     []uint32
 	visitMark uint32
 	members   []int32
+	glow      []float32
+	glowTmp   []float32
 	blob      []int32
 	blobDone  []uint32
 	blobOn    []bool
@@ -532,7 +540,8 @@ func (s *Sim) updateFire(x, y, i int) {
 
 // Explode blasts everything within radius power.
 func (s *Sim) Explode(cx, cy int, power float32) {
-	r := int(power + 1)
+	rad := power * Res
+	r := int(rad + 1)
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
 			x, y := cx+dx, cy+dy
@@ -540,10 +549,10 @@ func (s *Sim) Explode(cx, cy int, power float32) {
 				continue
 			}
 			d := float32(math.Sqrt(float64(dx*dx + dy*dy)))
-			if d > power {
+			if d > rad {
 				continue
 			}
-			f := 1 - d/power
+			f := 1 - d/rad
 			i := y*W + x
 			c := &s.Cells[i]
 			if c.M == Wall {
@@ -582,9 +591,9 @@ func (s *Sim) Explode(cx, cy int, power float32) {
 			}
 			st := mats[c.M].State
 			if st == SPowder || st == SLiquid {
-				k := power * f * 1.2 / d
-				c.VX = clamp(c.VX+float32(dx)*k, -12, 12)
-				c.VY = clamp(c.VY+float32(dy)*k-power*f*0.3, -12, 12)
+				k := power * Res * f * 1.2 / d
+				c.VX = clamp(c.VX+float32(dx)*k, -12*Res, 12*Res)
+				c.VY = clamp(c.VY+float32(dy)*k-power*Res*f*0.3, -12*Res, 12*Res)
 			}
 			if mats[c.M].Flammable && c.Flags&fBurning == 0 && s.chance(f) {
 				s.ignite(x, y, i)
@@ -768,7 +777,7 @@ func (s *Sim) moveLiquid(x, y, i int) {
 	}
 	for k := 0; k < 2; k++ {
 		best := -1
-		for d := 1; d <= info.Dispersion; d++ {
+		for d := 1; d <= info.Dispersion*3/2; d++ {
 			nx := x + dir*d
 			if nx < 0 || nx >= W {
 				break
@@ -807,12 +816,12 @@ func (s *Sim) moveGas(x, y, i int) {
 	const air = 1.2
 	buoy := (air - dens) / (air + dens)
 	wu, wv := s.Wind.At(x, y)
-	jit := float32(0.9)
+	jit := float32(0.9 * Res)
 	if c.M == Empty {
-		jit = 0.6
+		jit = 0.6 * Res
 	}
 	vx := wu + (s.rf()*2-1)*jit
-	vy := -buoy*1.4 + wv + (s.rf()*2-1)*jit
+	vy := -buoy*1.4*Res + wv + (s.rf()*2-1)*jit
 	dx := stochRound(vx, s.rf())
 	dy := stochRound(vy, s.rf())
 	if dx == 0 && dy == 0 {
@@ -822,8 +831,8 @@ func (s *Sim) moveGas(x, y, i int) {
 	if iabs(dy) > n {
 		n = iabs(dy)
 	}
-	if n > 3 {
-		n = 3
+	if n > 4 {
+		n = 4
 	}
 	fx, fy := float32(x)+0.5, float32(y)+0.5
 	sx, sy := float32(dx)/float32(n), float32(dy)/float32(n)
@@ -886,37 +895,76 @@ func iabs(v int) int {
 	return v
 }
 
+var (
+	condK   [NumMats][NumMats]float32 // pairwise conductance (harmonic mean)
+	invCap  [NumMats]float32
+	coolOf  [NumMats]float32
+	tableOK bool
+)
+
+func buildHeatTables() {
+	for a := range mats {
+		invCap[a] = 1 / mats[a].HeatCap
+		coolOf[a] = mats[a].CoolRate
+		for b := range mats {
+			condK[a][b] = harm(mats[a].Conduct, mats[b].Conduct)
+		}
+	}
+	tableOK = true
+}
+
 // heat conducts heat between neighbouring cells and relaxes air/gases toward
 // the ambient temperature.
 func (s *Sim) heat() {
+	if !tableOK {
+		buildHeatTables()
+	}
+	// Rows are split into bands; even bands run in parallel, then odd ones.
+	// A band only touches its own rows and the first row of the next band,
+	// so bands running at the same time never share a cell.
+	nb := workers * 2
+	band := (H + nb - 1) / nb
+	for phase := 0; phase < 2; phase++ {
+		var wg sync.WaitGroup
+		for k := phase; k*band < H; k += 2 {
+			wg.Add(1)
+			go func(y0, y1 int) {
+				defer wg.Done()
+				s.heatRows(y0, y1)
+			}(k*band, min((k+1)*band, H))
+		}
+		wg.Wait()
+	}
+}
+
+func (s *Sim) heatRows(y0, y1 int) {
 	cells := s.Cells
-	for y := 0; y < H; y++ {
+	for y := y0; y < y1; y++ {
 		row := y * W
+		last := y+1 >= H
 		for x := 0; x < W; x++ {
 			i := row + x
 			a := &cells[i]
-			ia := &mats[a.M]
-			ka := ia.Conduct
+			ka := &condK[a.M]
+			ca := invCap[a.M]
 			if x+1 < W {
 				b := &cells[i+1]
-				ib := &mats[b.M]
-				if k := harm(ka, ib.Conduct); k > 0 {
-					f := (a.T - b.T) * k
-					a.T -= f / ia.HeatCap
-					b.T += f / ib.HeatCap
+				if d := a.T - b.T; d != 0 {
+					f := d * ka[b.M]
+					a.T -= f * ca
+					b.T += f * invCap[b.M]
 				}
 			}
-			if y+1 < H {
+			if !last {
 				b := &cells[i+W]
-				ib := &mats[b.M]
-				if k := harm(ka, ib.Conduct); k > 0 {
-					f := (a.T - b.T) * k
-					a.T -= f / ia.HeatCap
-					b.T += f / ib.HeatCap
+				if d := a.T - b.T; d != 0 {
+					f := d * ka[b.M]
+					a.T -= f * ca
+					b.T += f * invCap[b.M]
 				}
 			}
-			if ia.CoolRate > 0 {
-				a.T += (Ambient - a.T) * ia.CoolRate
+			if cr := coolOf[a.M]; cr > 0 {
+				a.T += (Ambient - a.T) * cr
 			}
 			if a.T < -273 {
 				a.T = -273

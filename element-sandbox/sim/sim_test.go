@@ -119,6 +119,8 @@ func TestSaltDissolves(t *testing.T) {
 
 func TestGasolineBurns(t *testing.T) {
 	s := New()
+	fill(s, 148, H-12, 150, H, Wall)
+	fill(s, 210, H-12, 212, H, Wall)
 	fill(s, 150, H-8, 210, H, Gasoline)
 	run(s, 30)
 	before := count(s, Gasoline)
@@ -133,11 +135,16 @@ func TestDieselHarderToLightThanGasoline(t *testing.T) {
 	burned := func(m Mat) int {
 		s := New()
 		s.Seed(7)
+		fill(s, 148, H-12, 150, H, Wall)
+		fill(s, 210, H-12, 212, H, Wall)
 		fill(s, 150, H-8, 210, H, m)
 		run(s, 20)
 		before := count(s, m)
-		s.Ignite(152, H-10, 2)
-		run(s, 120)
+		for k := 0; k < 10; k++ { // hold a small flame on the pool
+			s.Ignite(160, H-9, 3)
+			s.Step()
+		}
+		run(s, 110)
 		return before - count(s, m)
 	}
 	g, d := burned(Gasoline), burned(Diesel)

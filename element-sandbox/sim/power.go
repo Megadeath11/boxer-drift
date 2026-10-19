@@ -87,10 +87,17 @@ func (s *Sim) power() {
 		s.visitMark = 1
 	}
 	st := PowerStats{}
+	beacons := false
 	for i := range s.Cells {
-		s.Cells[i].Flags &^= fPowered
+		c := &s.Cells[i]
+		c.Flags &^= fPowered
+		if c.M == Beacon {
+			beacons = true
+		}
 	}
-	st.Beacons = s.labelBeacons()
+	if beacons {
+		st.Beacons = s.labelBeacons()
+	}
 	s.blobMark++
 	for seed := range s.Cells {
 		if s.visit[seed] == s.visitMark || !mats[s.Cells[seed].M].Conductive {

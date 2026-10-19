@@ -4,12 +4,12 @@ import "math"
 
 // CS is the size, in cells, of one air-flow grid square.
 const (
-	CS = 5
+	CS = 6
 	FW = W / CS
 	FH = H / CS
 )
 
-const maxWind = 6
+const maxWind = 6 * Res
 
 // Wind is a coarse incompressible air-flow field (a small "stable fluids"
 // solver). Hot air creates buoyant updrafts, solids block and deflect the
@@ -73,9 +73,9 @@ func (w *Wind) step(s *Sim) {
 		if w.tcnt[fi] > 0 {
 			dT := w.tsum[fi]/float32(w.tcnt[fi]) - Ambient
 			dT = clamp(dT, -300, 600)
-			w.V[fi] -= dT * 0.0003 // buoyancy: hot air rises, cold sinks
+			w.V[fi] -= dT * 0.0003 * Res // buoyancy: hot air rises, cold sinks
 		}
-		w.U[fi] += (w.Global - w.U[fi]) * 0.02
+		w.U[fi] += (w.Global*Res - w.U[fi]) * 0.02
 	}
 
 	// advect velocity along itself (semi-Lagrangian)
@@ -217,7 +217,7 @@ func (w *Wind) Push(x, y int, strength float32) {
 
 // Blast is the pressure wave of an explosion.
 func (w *Wind) Blast(x, y int, power float32) {
-	w.radial(x, y, power*2/CS+1.5, power*0.8)
+	w.radial(x, y, power*Res*2/CS+1.5, power*Res*0.8)
 }
 
 func (w *Wind) radial(x, y int, rad, strength float32) {

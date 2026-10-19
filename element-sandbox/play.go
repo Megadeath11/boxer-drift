@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"elementsandbox/levels"
+	"elementsandbox/sim"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -43,6 +44,7 @@ func menuBtnRect(k int) (x, y int) {
 }
 
 func (g *Game) updateMenu() error {
+	stepDemo(g.demo)
 	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		return nil
 	}
@@ -65,7 +67,9 @@ func (g *Game) updateMenu() error {
 }
 
 func (g *Game) drawMenu(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{14, 16, 22, 255})
+	g.drawWorld(screen, g.demo, sim.ViewNormal, true)
+	vector.DrawFilledRect(screen, 0, 0, screenW, screenH, color.RGBA{8, 10, 14, 150}, false)
+	vector.DrawFilledRect(screen, float32(screenW/2-menuBtnW/2-30), 50, menuBtnW+60, float32(menuTop+len(g.menuItems())*(menuBtnH+6)-30), color.RGBA{10, 12, 18, 170}, false)
 	op := &text.DrawOptions{}
 	op.GeoM.Scale(5, 5)
 	title := "ELEMENT SANDBOX"
@@ -126,7 +130,7 @@ func (g *Game) startLevel(k int) {
 	l.Build(g.sim)
 	g.sim.Step() // so the HUD knows how many beacons there are
 	g.buildPalette(l.Allow)
-	g.brush = 2
+	g.brush = 3
 	g.waitRelease = true
 }
 
@@ -143,6 +147,10 @@ func (g *Game) updateLevelOverlays() bool {
 		}
 		return true
 	case g.won:
+		g.wonT++
+		if g.wonT < 60 { // don't let a click meant for the level skip the win screen
+			return true
+		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyR) {
 			g.startLevel(g.level)
 		} else if click || enter {
@@ -165,7 +173,7 @@ func (g *Game) checkGoal() {
 		g.hold = 0
 	}
 	if g.hold >= levels.HoldFrames && !g.won {
-		g.won = true
+		g.won, g.wonT = true, 0
 		if g.level+1 > g.unlocked {
 			g.unlocked = g.level + 1
 			saveProgress(g.unlocked)

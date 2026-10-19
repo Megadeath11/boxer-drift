@@ -16,6 +16,14 @@ It ships as **one portable `ElementSandbox.exe`**: no installer and no DLLs. Put
 | Gases | Steam, Smoke, Hydrogen, Oxygen, Methane, Propane, CO2, Nitrogen, Chlorine, Fuel Vapor |
 | Tools | Erase, Fire, Heat, Cool, Wind, Bomb |
 
+## Graphics
+
+- The world is 540 × 300 simulated pixels, each drawn as a 2 × 2 block.
+- Flames, red-hot metal, lava, lamps and beacons give off a soft **glow**: a blurred light map added on top of the scene.
+- Solids get lit top edges and shadowed undersides, liquids have bright surfaces, and water shimmers.
+- The main menu runs a live scene behind its buttons.
+- Rendering, glow and heat conduction run in parallel on all CPU cores.
+
 ## Levels
 
 Pick a level from the main menu. Each one gives you a few materials in limited amounts, shown as the numbers on the palette buttons. Erasing your own material refunds it. To win, keep every beacon powered for 3 seconds. Your progress is saved in `ElementSandbox-progress.txt` next to the exe.
@@ -94,6 +102,8 @@ build.bat         # Windows        -> dist\ElementSandbox.exe
 go run .          # run directly (on Linux this needs X11/GL dev packages)
 go test ./...     # headless physics tests + proof that every level is winnable
 ```
+
+The exe's icon comes from `rsrc_windows_amd64.syso`, which Go links in automatically. To regenerate it from `assets/icon.ico`, run `go run github.com/akavel/rsrc@v0.10.2 -ico assets/icon.ico -arch amd64 -o rsrc_windows_amd64.syso`.
 
 GitHub Actions builds the exe on every push that changes this folder; download it from the run's artifacts. Pushing a tag like `sandbox-v1.0.0` publishes it to **Releases**.
 
