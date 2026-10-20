@@ -201,7 +201,7 @@ var All = []Level{
 			wall(s, 140, 160, 144, 192) // acid trench
 			wall(s, 226, 160, 230, 192)
 			fixed(s, 144, 168, 226, 192, sim.Acid) // the acid is layout: it can't be erased
-			wall(s, 182, 0, 188, 178) // wall down into the acid
+			wall(s, 182, 0, 188, 178)              // wall down into the acid
 			fixed(s, 300, 176, 316, 192, sim.Beacon)
 		},
 	},
