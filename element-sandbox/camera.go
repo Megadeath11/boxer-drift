@@ -63,7 +63,8 @@ func (g *Game) updateCamera(mx, my int) {
 	if ebiten.IsKeyPressed(ebiten.KeyD) {
 		g.camX += step
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyZ) || inpututil.IsKeyJustPressed(ebiten.KeyKPAdd) {
+	ctrl := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
+	if (inpututil.IsKeyJustPressed(ebiten.KeyZ) && !ctrl) || inpututil.IsKeyJustPressed(ebiten.KeyKPAdd) { // Ctrl+Z is undo
 		g.zoomAt(simW/2, simH/2, 1.5)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyX) || inpututil.IsKeyJustPressed(ebiten.KeyKPSubtract) {

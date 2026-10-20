@@ -126,6 +126,8 @@ type Game struct {
 	campFree   bool            // campaign finished: free building, no goal
 	campSaved  int             // stage of the campaign save on disk, or -1
 	restartAsk int             // frames left to confirm restarting a stage
+
+	undo []undoStep // Ctrl+Z history, oldest first
 	// waitRelease ignores the mouse until the click that closed a menu or
 	// overlay is released, so it doesn't also paint
 	waitRelease bool
@@ -183,6 +185,7 @@ func buttonLabel(info *sim.MatInfo) string {
 // buildPalette lays out the sidebar: everything in the sandbox, or only what
 // a level allows.
 func (g *Game) buildPalette(allow []levels.Allow) {
+	g.clearUndo() // a new world: there's nothing to go back to
 	g.entries, g.headers, g.scroll = nil, nil, 0
 	y := 0
 	// a level offers a handful of things: give each a full-width button so
@@ -278,8 +281,14 @@ func (g *Game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) || inpututil.IsKeyJustPressed(ebiten.KeyF1) {
 		g.help = !g.help
 	}
+	ctrl := ebiten.IsKeyPressed(ebiten.KeyControl) || ebiten.IsKeyPressed(ebiten.KeyMeta)
+	if ctrl && inpututil.IsKeyJustPressed(ebiten.KeyZ) {
+		g.undoLast()
+		return nil
+	}
 	if g.level == levelSandbox { // sandbox-only controls: levels set their own world
 		if inpututil.IsKeyJustPressed(ebiten.KeyO) {
+			g.pushUndo()
 			if g.sim.OpenTop {
 				g.sim.AddRoof(roofCells)
 				g.say("Roof on: gases gather under it, steam rains back down")
@@ -326,6 +335,7 @@ func (g *Game) Update() error {
 				g.clearAskT = 150
 				g.say("Press C again to clear everything")
 			} else {
+				g.pushUndo()
 				roof := !g.sim.OpenTop
 				g.sim.Clear()
 				if roof {
@@ -393,11 +403,12 @@ func (g *Game) Update() error {
 		sx, sy := g.toCell(mx, my)
 		if !g.drawing {
 			g.lastX, g.lastY = sx, sy
+			g.pushUndo() // each stroke, click or purchase is one undo step
 			if left && g.entries[g.sel].tool == toolBomb {
 				g.sim.Explode(sx, sy, 4+float32(g.brush)*0.8)
 			}
-			if left && g.entries[g.sel].tool == toolKit {
-				g.buyKit(g.entries[g.sel].kit, sx, sy)
+			if left && g.entries[g.sel].tool == toolKit && !g.buyKit(g.entries[g.sel].kit, sx, sy) {
+				g.dropUndo()
 			}
 		}
 		g.applyTool(g.lastX, g.lastY, sx, sy, right)
@@ -789,6 +800,7 @@ var helpLines = []string{
 	"Home or 0        zoom out to the whole map",
 	"Left / Right     global wind  (Down = calm)",
 	"Space            pause    N  single step",
+	"Ctrl+Z           undo your last action (up to 15)",
 	"T  heat view     V  show air flow",
 	"O  roof on/off   C twice  clear everything",
 	"K  next season   L  lock season",

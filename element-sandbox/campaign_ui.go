@@ -145,6 +145,7 @@ func priceTag(p float64) string {
 
 // buildShop lays out the sidebar for the current stage.
 func (g *Game) buildShop() {
+	g.clearUndo() // a new stage (or a restart): there's nothing to go back to
 	var kits, mats, tools []entry
 	for _, it := range g.camp.Cur().Shop {
 		switch {
@@ -207,7 +208,8 @@ func (g *Game) buildShop() {
 	}
 }
 
-func (g *Game) buyKit(k *campaign.Kit, x, y int) {
+// buyKit buys and places a kit, reporting whether it was built.
+func (g *Game) buyKit(k *campaign.Kit, x, y int) bool {
 	switch {
 	case g.camp.Money < k.Cost():
 		g.say(fmt.Sprintf("A %s costs $%.0f: you have $%.0f. Demolish something for a refund.", k.Name, k.Cost(), g.camp.Money))
@@ -215,7 +217,9 @@ func (g *Game) buyKit(k *campaign.Kit, x, y int) {
 		g.say("It doesn't fit there: it needs open space, standing on the ground.")
 	default:
 		g.say(fmt.Sprintf("Built a %s for $%.0f", k.Name, k.Cost()))
+		return true
 	}
+	return false
 }
 
 func (g *Game) demolish(x, y, r int) {

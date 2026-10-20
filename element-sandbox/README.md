@@ -157,6 +157,7 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 | `J` / `P` | Seasons on / off, weather on / off |
 | `C` twice | Clear everything (sandbox) |
 | `R` | Restart level |
+| `Ctrl+Z` | Undo your last action: a stroke, a kit, a bomb, a clear (up to 15 steps; the world rewinds to just before it) |
 | `Esc` | Main menu (Esc again, or Resume, goes back to your game) |
 | `F11` | Fullscreen |
 | `H` / `F1` | Help |
