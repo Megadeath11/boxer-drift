@@ -190,7 +190,7 @@ type MatInfo struct {
 	Device     Device
 	Demand     float32 // power a consumer needs to run
 	AcidProof  bool
-	Carbon     bool // burning it releases CO2
+	Carbon     float32 // cells of CO2 released per cell burnt (0: none)
 
 	Group string // palette group ("" = hidden)
 }
@@ -510,8 +510,16 @@ func init() {
 	flammable(m, 80, 220, 550, 0.4, 25, 0.4, 0.06)
 	m.BurnInto, m.BurnChance = Ash, 0.3
 
-	// carbon-based fuels give off CO2 when they burn
-	for _, c := range []Mat{Wood, Plant, Coal, Sawdust, Oil, Gasoline, Diesel, Ethanol, Seed, Trunk, Leaf, FallenLeaf} {
-		mats[c].Carbon = true
+	// carbon-based fuels give off CO2 when they burn. Dense fuels give the
+	// most; living plants are mostly water and give much less, so one stray
+	// spark in a forest doesn't choke the whole valley.
+	for _, c := range []Mat{Coal, Oil, Gasoline, Diesel, Ethanol} {
+		mats[c].Carbon = 2.5
+	}
+	for _, c := range []Mat{Wood, Sawdust} {
+		mats[c].Carbon = 1.5
+	}
+	for _, c := range []Mat{Plant, Seed, Trunk, Leaf, FallenLeaf} {
+		mats[c].Carbon = 0.4
 	}
 }

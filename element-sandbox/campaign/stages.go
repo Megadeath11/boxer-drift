@@ -213,7 +213,7 @@ var Stages = []Stage{
 			"lights stay on. Plant Tree Seeds: their leaves",
 			"breathe the CO2 in. Fewer coal fires help too.",
 		},
-		Grant: 90,
+		Grant: 120,
 		Shop:  []Item{itTurbine, itBoiler, itBattery, itWire, itCoal, itFire, itSeed, itDirt, itDemol},
 		Setup: func(s *sim.Sim) {
 			// smog from the town's chimneys hangs over the valley

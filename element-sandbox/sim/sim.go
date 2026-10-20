@@ -219,6 +219,10 @@ func (s *Sim) update(x, y int) {
 			s.moveLiquid(x, y, i)
 		}
 	case SGas:
+		if c.M == CO2 && s.chance(co2Sink) {
+			s.become(i, Empty) // soaked up by soil and water
+			return
+		}
 		if c.M == Smoke {
 			c.Life--
 			if c.Life <= 0 {
@@ -519,7 +523,7 @@ func (s *Sim) burn(x, y, i int) bool {
 		s.spawnNear(x, y, Smoke, c.T*0.4)
 	}
 	// each burnt cell of fuel releases a few cells of CO2 over its burn time
-	if info.Carbon && s.chance(2.5/float32(max(info.BurnLife, 1))) {
+	if info.Carbon > 0 && s.chance(info.Carbon/float32(max(info.BurnLife, 1))) {
 		s.spawnNear(x, y, CO2, c.T*0.5) // C + O2 -> CO2
 	}
 	k := s.ri(8)
@@ -741,6 +745,10 @@ func (s *Sim) travel(x, y, i int) (int, bool) {
 	}
 	return ci, moved
 }
+
+// co2Sink is the chance per frame that a CO2 cell is absorbed by the
+// ground and water: on its own, extra CO2 halves in about seven minutes.
+const co2Sink = 1.0 / (60 * 60 * 10)
 
 // canRust reports whether iron is bare enough to rust: level layout
 // and the campaign's bought kits are protected, so boilers don't rot away.

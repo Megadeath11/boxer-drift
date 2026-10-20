@@ -134,6 +134,7 @@ func TestCampaignPlaysThrough(t *testing.T) {
 	if n := plant(c, s, 10); n < 10 {
 		t.Fatalf("planted only %d seeds", n)
 	}
+	coal(t, c, s, sc(150), 278, 4) // keep the boiler going while the trees grow
 	play(t, c, s, "Tree Seed", 180)
 
 	// 5. Hot Springs: mend the wiring the quake broke, and a boiler on the vent

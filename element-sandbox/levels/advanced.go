@@ -224,7 +224,7 @@ var advanced = []Level{
 			// the acid trench, with a wall dipping into it
 			wall(s, 136, 160, 140, 192)
 			wall(s, 206, 160, 210, 192)
-			fill(s, 140, 168, 206, 192, sim.Acid, false)
+			fixed(s, 140, 168, 206, 192, sim.Acid) // the acid is layout: it can't be erased
 			wall(s, 170, 40, 176, 178)
 			fixed(s, 220, 176, 236, 192, sim.Beacon)
 			hill(s, 300, 112)

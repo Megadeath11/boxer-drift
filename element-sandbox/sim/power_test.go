@@ -70,3 +70,18 @@ func TestBatteryBuffersPower(t *testing.T) {
 		t.Fatal("battery did not power the lamp")
 	}
 }
+
+func TestWireCanBeDrawnIntoLiquid(t *testing.T) {
+	s := New()
+	s.Fill(100, 100, 140, 130, Acid, true) // a level's acid: protected
+	if n := s.Paint(120, 115, 0, Gold, false, -1); n != 1 || s.At(120, 115).M != Gold {
+		t.Fatal("couldn't draw gold into the acid")
+	}
+	s.Paint(110, 115, 0, Sand, false, -1) // powders don't push liquids aside
+	if s.At(110, 115).M != Acid {
+		t.Fatal("sand was drawn into the acid")
+	}
+	if s.Erase(125, 115, 3); s.At(125, 115).M != Acid {
+		t.Fatal("erased a level's acid")
+	}
+}

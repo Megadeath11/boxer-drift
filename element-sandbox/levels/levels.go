@@ -190,7 +190,8 @@ var All = []Level{
 			"The beacon is past a wall that dips into acid.",
 			"Acid dissolves copper and breaks the circuit,",
 			"but gold can't corrode. Use precious Gold for",
-			"the part of the wire that runs through the acid.",
+			"the part of the wire that runs through the acid:",
+			"you can draw it straight into the acid.",
 		},
 		Allow: []Allow{mat(sim.Copper, 600), mat(sim.Gold, 160), tool(ToolErase)},
 		Build: func(s *sim.Sim) {
@@ -199,7 +200,7 @@ var All = []Level{
 			fixed(s, lead, 100, 150, 103, sim.Copper)
 			wall(s, 140, 160, 144, 192) // acid trench
 			wall(s, 226, 160, 230, 192)
-			fill(s, 144, 168, 226, 192, sim.Acid, false)
+			fixed(s, 144, 168, 226, 192, sim.Acid) // the acid is layout: it can't be erased
 			wall(s, 182, 0, 188, 178) // wall down into the acid
 			fixed(s, 300, 176, 316, 192, sim.Beacon)
 		},

@@ -40,7 +40,11 @@ func (s *Sim) paint(cx, cy, r int, m Mat, replace bool, limit int, flags uint8) 
 		if limit >= 0 && placed >= limit {
 			return
 		}
-		if c.M == m || c.Flags&fFixed != 0 || (!replace && c.M != Empty) || !s.chance(density) {
+		// a solid (a wire, a wall) can be drawn straight into a liquid or a
+		// gas, pushing it aside: even a level's own acid or water
+		into := mats[c.M].State
+		sinks := st == SSolid && (into == SLiquid || into == SGas)
+		if c.M == m || (c.Flags&fFixed != 0 && !sinks) || (!replace && c.M != Empty && !sinks) || !s.chance(density) {
 			return
 		}
 		s.put(i, m)
