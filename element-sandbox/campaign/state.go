@@ -18,7 +18,7 @@ type State struct {
 	Frame int            // frames since the stage began
 	Hold  int            // frames the goal has been met in a row
 	Won   bool           // the current stage is complete
-	Paid  float64        // insurance paid when this stage began (a quake)
+	Paid  float64        // paid for buildings cleared when this stage began
 }
 
 // Start builds the valley and begins the first stage.
@@ -40,7 +40,7 @@ func (c *State) Begin(s *sim.Sim, k int) {
 	c.Stage, c.Step, c.Frame, c.Hold, c.Won, c.Paid = k, 0, 0, 0, false, 0
 	st := c.Cur()
 	c.Money += st.Grant
-	if q := st.Quake; q != nil {
+	if q := st.Clear; q != nil {
 		x0, y0, x1, y1 := sc(q[0]), sc(q[1]), sc(q[2]), sc(q[3])
 		for y := y0; y < y1; y++ {
 			for x := x0; x < x1; x++ {
@@ -53,6 +53,9 @@ func (c *State) Begin(s *sim.Sim, k int) {
 				}
 				s.Fill(x, y, x+1, y+1, sim.Empty, false)
 			}
+		}
+		if st.Cover > 0 {
+			c.Paid *= st.Cover
 		}
 		c.Paid = math.Round(c.Paid)
 		c.Money += c.Paid

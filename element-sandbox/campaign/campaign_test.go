@@ -68,8 +68,24 @@ func play(t *testing.T, c *State, s *sim.Sim, selected string, secs int) {
 		s.Stats.BeaconOn, s.Stats.Beacons, s.Stats.Generated, s.Climate.PPM, c.Step)
 }
 
-// toCleanAir plays stages 1 to 3 the intended way and begins stage 4.
-func toCleanAir(t *testing.T) (*State, *sim.Sim) {
+// plant sows n tree seeds on the valley floor between the stage-2 boiler
+// and the houses (well away from its fire) and reports how many took.
+func plant(c *State, s *sim.Sim, n int) int {
+	got := 0
+	for k := 0; k < 2*n && got < n; k++ {
+		for try := 0; try < 20; try++ { // powder lands with a chance per stroke
+			if c.Paint(s, sc(166+k*46/(2*n)), sc(ground)-1, 0, sim.Seed) > 0 {
+				got++
+				break
+			}
+		}
+	}
+	return got
+}
+
+// toStillNights plays stages 1 and 2 the intended way, begins stage 3 and
+// wires in its new houses. It returns where the boiler stands.
+func toStillNights(t *testing.T) (*State, *sim.Sim, int, int) {
 	s := sim.New()
 	c := Start(s)
 
@@ -93,10 +109,16 @@ func toCleanAir(t *testing.T) (*State, *sim.Sim) {
 	t.Logf("before coal $%.0f", c.Money)
 	coal(t, c, s, bx, by, 5)
 	play(t, c, s, "Fire", 60)
-
-	// 3. Still Nights: a battery bank, and more coal on the fire
 	c.Next(s)
-	kx := sc(240)
+	wire(t, c, s, sc(212), 277, 494, 277)
+	return c, s, bx, by
+}
+
+// toCleanAir plays stages 1 to 3 the intended way and begins stage 4.
+func toCleanAir(t *testing.T) (*State, *sim.Sim) {
+	// 3. Still Nights: a battery bank, and more coal
+	c, s, bx, by := toStillNights(t)
+	kx := sc(130)
 	ky := buy(t, c, s, BatteryBank, kx, 230)
 	wire(t, c, s, kx+9, ky-6, kx+9, 151)
 	coal(t, c, s, bx, by, 5)
@@ -108,22 +130,21 @@ func toCleanAir(t *testing.T) (*State, *sim.Sim) {
 func TestCampaignPlaysThrough(t *testing.T) {
 	c, s := toCleanAir(t)
 
-	// 4. Clean Air: plant trees, keep the wind and batteries running
-	for k := 0; k < 9; k++ {
-		x := sc(100 + k*16)
-		c.Paint(s, x, sc(ground)-1, 0, sim.Seed)
+	// 4. Clean Air: plant ten trees, keep the wind and batteries running
+	if n := plant(c, s, 10); n < 10 {
+		t.Fatalf("planted only %d seeds", n)
 	}
 	play(t, c, s, "Tree Seed", 180)
 
-	// 5. Hot Springs: a boiler over the vent, wired to the new houses
+	// 5. Hot Springs: mend the wiring the quake broke, and a boiler on the vent
 	c.Next(s)
-	vy := buy(t, c, s, SteamBoiler, sc(168), 230)
-	wire(t, c, s, sc(168)+15, vy-42, sc(168)+15, 151)
 	t.Logf("insurance paid $%.0f", c.Paid)
-	wire(t, c, s, sc(138), 150, sc(258), 150) // mend the main line
-	wire(t, c, s, sc(194)-2, 277, sc(258), 277)
-	ky := buy(t, c, s, BatteryBank, sc(270), 200) // between the houses and the hill line
-	wire(t, c, s, sc(270)+9, ky-6, sc(270)+9, 151)
+	wire(t, c, s, sc(112), 150, sc(216), 150)
+	wire(t, c, s, sc(168), 277, sc(216), 277)
+	vy := buy(t, c, s, SteamBoiler, sc(140), 230)
+	wire(t, c, s, sc(140)+15, vy-42, sc(140)+15, 151)
+	ky := buy(t, c, s, BatteryBank, sc(100), 230) // smooths the vent boiler's swings
+	wire(t, c, s, sc(100)+9, ky-6, sc(100)+9, 151)
 	play(t, c, s, "Copper Wire", 120)
 	if !c.Final() {
 		t.Fatal("campaign not finished")
@@ -181,4 +202,16 @@ func TestCleanAirNeedsTrees(t *testing.T) {
 		}
 	}
 	t.Logf("after 90 s without trees: %.0f ppm", s.Climate.PPM)
+}
+
+// Stage 3's calm spells can't be bridged by burning more coal alone.
+func TestStillNightsNeedsBatteries(t *testing.T) {
+	c, s, bx, by := toStillNights(t)
+	coal(t, c, s, bx, by, 5)
+	for f := 0; f < 60*90; f++ {
+		c.Update(s, "")
+		if c.Won {
+			t.Fatal("won Still Nights without a battery bank")
+		}
+	}
 }

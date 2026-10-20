@@ -72,9 +72,11 @@ The place to start. You run the power company for a small valley town, in one wo
 |---|---|
 | 1. First Light | Tutorial: build a turbine on the hill and wire it to the first house. |
 | 2. Growing Town | Four houses need 48 power. Wind alone won't stretch that far on your budget: steam will. |
-| 3. Still Nights | The wind comes in gusts with calm spells. Keep the lights on for 20 s: batteries help. |
-| 4. Clean Air | Smog: CO2 must come down to 450 ppm. Plant trees and go easy on the coal. |
-| 5. Hot Springs | An earthquake opens a volcanic vent and three more houses appear. A boiler over the vent boils for free. Insurance pays for anything of yours the quake destroys. |
+| 3. Still Nights | Two more houses (72 power) and gusty wind with calm spells. Keep the lights on for 20 s: more coal alone won't bridge the calm, so you need batteries. |
+| 4. Clean Air | Smog: CO2 must come down to 450 ppm. Plant about ten trees, well away from your fires (a forest fire is all CO2). |
+| 5. Hot Springs | An earthquake opens a volcanic vent and two more houses appear (96 power). A boiler over the vent boils for free. Insurance pays half the value of what the quake destroys. |
+
+Each stage leaves you a little less room than the one before. Where new houses go up, the council pays you in full for anything of yours that was in the way.
 
 The campaign saves itself next to the exe (`ElementSandbox-campaign.sav`) when you leave it, when you close the game, and at the start of each stage. `R` twice restarts the current stage.
 
@@ -167,7 +169,8 @@ You need [Go](https://go.dev/dl/) 1.22 or newer. You can cross-compile the Windo
 ./build.sh        # macOS / Linux  -> dist/ElementSandbox.exe
 build.bat         # Windows        -> dist\ElementSandbox.exe
 go run .          # run directly (on Linux this needs X11/GL dev packages)
-go test ./...     # headless physics tests + proof that every level is winnable
+go test ./...     # headless physics tests + proof that every level and the campaign are winnable
+BALANCE=1 go test ./campaign/ -run Balance -v -timeout 60m   # campaign balance report
 ```
 
 The exe's icon comes from `rsrc_windows_amd64.syso`, which Go links in automatically. To regenerate it from `assets/icon.ico`, run `go run github.com/akavel/rsrc@v0.10.2 -ico assets/icon.ico -arch amd64 -o rsrc_windows_amd64.syso`.

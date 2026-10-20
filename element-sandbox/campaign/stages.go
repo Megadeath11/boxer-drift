@@ -56,9 +56,11 @@ type Stage struct {
 	Setup func(s *sim.Sim)
 	// Tick runs scripted weather each frame (frame counts from the stage's start).
 	Tick func(s *sim.Sim, frame int)
-	// Quake, if set, is a design-grid rectangle (x0, y0, x1, y1) cleared
-	// before Setup runs; the player is paid in full for what they lose.
-	Quake  *[4]int
+	// Clear, if set, is a design-grid rectangle (x0, y0, x1, y1) cleared
+	// before Setup runs (new building plots, a quake); the player is paid
+	// in full for anything of theirs that was there.
+	Clear  *[4]int
+	Cover  float64 // share of their value paid for cleared buildings (0 means all of it)
 	Hold   int     // frames every house must stay lit
 	MaxPPM float32 // if set, CO2 must also be at or below this
 }
@@ -181,16 +183,22 @@ var Stages = []Stage{
 		Name: "3. Still Nights",
 		Brief: []string{
 			"The weather has turned: now the wind blows in",
-			"gusts, with long calm spells in between.",
-			"Coal keeps burning only while you buy it, so store",
-			"the wind's spare power in a Battery Bank to carry",
-			"the town through the calm. Keep the lights on for",
-			"20 seconds.",
+			"gusts, with long calm spells in between, and two",
+			"more houses have gone up: six houses need 72 power.",
+			"Coal burns away and has to be bought again, so",
+			"store the wind's spare power in a Battery Bank to",
+			"carry the town through the calm. Keep every house",
+			"lit for 20 seconds.",
 		},
-		Grant: 250,
+		Grant: 210,
 		Shop:  []Item{itTurbine, itBoiler, itBattery, itWire, itCoal, itFire, itDemol},
-		Setup: func(s *sim.Sim) {},
-		Tick:  gusts(1.6, 60*8, 60*6),
+		Clear: &[4]int{212, 150, 256, ground},
+		Setup: func(s *sim.Sim) {
+			for _, x := range []int{215, 238} {
+				house(s, x)
+			}
+		},
+		Tick: gusts(1.6, 60*8, 60*6),
 		Tips: []string{
 			"Batteries charge slowly: a few banks charge faster.",
 			"Wire batteries into the same grid as the houses.",
@@ -205,7 +213,7 @@ var Stages = []Stage{
 			"lights stay on. Plant Tree Seeds: their leaves",
 			"breathe the CO2 in. Fewer coal fires help too.",
 		},
-		Grant: 200,
+		Grant: 90,
 		Shop:  []Item{itTurbine, itBoiler, itBattery, itWire, itCoal, itFire, itSeed, itDirt, itDemol},
 		Setup: func(s *sim.Sim) {
 			// smog from the town's chimneys hangs over the valley
@@ -224,6 +232,7 @@ var Stages = []Stage{
 		Tips: []string{
 			"Seeds sprout on dirt and grow in summer.",
 			"Trees take a while to grow: plant plenty.",
+			"Keep them clear of fires: a forest fire is all CO2.",
 		},
 		Hold: 60 * 5,
 	},
@@ -231,19 +240,21 @@ var Stages = []Stage{
 		Name: "5. Hot Springs",
 		Brief: []string{
 			"An earthquake split the valley floor and opened a",
-			"volcanic vent. It flattened everything nearby, but",
-			"insurance paid for anything of yours it destroyed.",
-			"Three more houses went up beside the vent.",
-			"A Steam Boiler standing over the vent boils for",
-			"free, with no coal and no smoke. Keep all seven",
-			"houses lit with CO2 at or under 500 ppm.",
+			"volcanic vent. It flattened everything nearby;",
+			"insurance paid half of what your losses were worth.",
+			"Two more houses went up beside the vent: eight",
+			"houses now need 96 power. A Steam Boiler standing",
+			"over the vent boils for free, with no coal and no",
+			"smoke. Keep every house lit, with CO2 at or under",
+			"500 ppm, for 10 seconds.",
 		},
-		Grant: 250,
+		Grant: 210,
 		Shop:  []Item{itTurbine, itBoiler, itBattery, itWire, itCoal, itFire, itSeed, itDirt, itDemol},
-		Quake: &[4]int{140, 20, 256, ground},
+		Clear: &[4]int{116, 20, 212, ground},
+		Cover: 0.5,
 		Setup: func(s *sim.Sim) {
-			fill(s, 150, ground, 186, 192, sim.Lava) // the vent
-			for _, x := range []int{194, 215, 236} {
+			fill(s, 118, ground, 166, 192, sim.Lava) // the vent
+			for _, x := range []int{170, 192} {
 				house(s, x)
 			}
 		},

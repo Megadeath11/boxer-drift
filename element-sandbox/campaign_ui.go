@@ -363,7 +363,7 @@ func (g *Game) drawCampaign(screen *ebiten.Image) {
 	case g.brief:
 		lines := append([]string{st.Name, ""}, st.Brief...)
 		if c.Paid > 0 {
-			lines = append(lines, "", fmt.Sprintf("Insurance paid you $%.0f.", c.Paid))
+			lines = append(lines, "", fmt.Sprintf("You were paid $%.0f for your buildings that were in the way.", c.Paid))
 		}
 		lines = append(lines, "", fmt.Sprintf("You have $%.0f to spend.", c.Money),
 			"Esc saves and returns to the menu. R twice restarts the stage.", "", "Click or press Enter to start.")
