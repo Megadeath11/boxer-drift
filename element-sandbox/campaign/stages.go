@@ -83,8 +83,8 @@ func fill(s *sim.Sim, x0, y0, x1, y1 int, m sim.Mat) {
 // house builds a house with its left wall at design x, standing on the ground.
 func house(s *sim.Sim, x int) {
 	fill(s, x, 172, x+16, 186, sim.House)
-	for k := 0; k < 6; k++ { // a pitched roof
-		fill(s, x-1+k, 166+k, x+17-k, 167+k, sim.Wall)
+	for k := 0; k < 6; k++ { // a pitched tin roof: wire can connect to it too
+		fill(s, x-1+k, 166+k, x+17-k, 167+k, sim.Metal)
 	}
 }
 

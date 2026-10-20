@@ -470,6 +470,11 @@ func (g *Game) applyTool(x0, y0, x1, y1 int, erase bool) {
 	}
 	dist := math.Hypot(float64(x1-x0), float64(y1-y0))
 	steps := int(dist/math.Max(1, float64(r)/2)) + 1
+	if r == 0 {
+		// a one-pixel line: one step per pixel along its longer axis, so
+		// it comes out as an unbroken line however fast the mouse moved
+		steps = max(abs(x1-x0), abs(y1-y0), 1)
+	}
 	replace := ebiten.IsKeyPressed(ebiten.KeyShift)
 	for k := 0; k < steps; k++ {
 		t := float64(k+1) / float64(steps)
@@ -875,4 +880,11 @@ func degrees(t float32) string {
 		r = 0 // drops the sign of -0
 	}
 	return fmt.Sprintf("%.0f C", r)
+}
+
+func abs(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

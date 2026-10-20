@@ -167,5 +167,21 @@ func Load(r io.Reader, s *sim.Sim) (*State, error) {
 	if c.Built == nil {
 		c.Built = map[string]int{}
 	}
-	return c, s.Load(br)
+	if err := s.Load(br); err != nil {
+		return nil, err
+	}
+	tinRoofs(s)
+	return c, nil
+}
+
+// tinRoofs updates saves from before house roofs conducted: the only fixed
+// wall above the valley floor is a house roof, and it becomes metal.
+func tinRoofs(s *sim.Sim) {
+	for y := sc(150); y < sc(ground); y++ {
+		for x := 0; x < sim.W; x++ {
+			if c := s.At(x, y); c.M == sim.Wall && c.IsFixed() {
+				s.Fill(x, y, x+1, y+1, sim.Metal, true)
+			}
+		}
+	}
 }

@@ -215,3 +215,34 @@ func TestStillNightsNeedsBatteries(t *testing.T) {
 		}
 	}
 }
+
+// A wire that only touches a house's roof still lights it.
+func TestWireToTheRoof(t *testing.T) {
+	s := sim.New()
+	c := Start(s)
+	c.Update(s, WindTurbine.Name)
+	buy(t, c, s, WindTurbine, sc(62), sc(60))
+	// along to above the house, then straight down onto the roof's peak
+	wire(t, c, s, sc(62)+2, 150, sc(338), 150)
+	wire(t, c, s, sc(338), 150, sc(338), sc(166)-1)
+	play(t, c, s, "Copper Wire", 30)
+}
+
+// A sloping one-pixel wire (a staircase whose steps touch only at their
+// corners, like one drawn by hand) still carries power.
+func TestSlopingWire(t *testing.T) {
+	s := sim.New()
+	c := Start(s)
+	c.Update(s, WindTurbine.Name)
+	buy(t, c, s, WindTurbine, sc(62), sc(60))
+	foot := sc(116) - 1
+	// from the mast's side down a gentle slope to the house wall
+	x0, y0, x1, y1 := sc(62)+2, foot-10, sc(330)-1, 270
+	n := max(abs(x1-x0), abs(y1-y0))
+	for k := 0; k <= n; k++ {
+		x := x0 + (x1-x0)*k/n
+		y := y0 + (y1-y0)*k/n
+		c.Paint(s, x, y, 0, sim.Copper)
+	}
+	play(t, c, s, "Copper Wire", 30)
+}

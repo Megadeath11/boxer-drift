@@ -128,25 +128,16 @@ func (s *Sim) power() {
 		if s.visit[seed] == s.visitMark || !mats[s.Cells[seed].M].Conductive {
 			continue
 		}
-		// flood-fill one circuit (4-connected)
+		// flood-fill one circuit. Pixels touching at a corner connect too:
+		// a hand-drawn diagonal wire is a staircase of corner-touching pixels
 		s.members = s.members[:0]
 		s.members = append(s.members, int32(seed))
 		s.visit[seed] = s.visitMark
 		for k := 0; k < len(s.members); k++ {
 			i := int(s.members[k])
 			x, y := i%W, i/W
-			for d := 0; d < 4; d++ {
-				nx, ny := x, y
-				switch d {
-				case 0:
-					nx--
-				case 1:
-					nx++
-				case 2:
-					ny--
-				case 3:
-					ny++
-				}
+			for d := 0; d < 8; d++ {
+				nx, ny := x+dx8[d], y+dy8[d]
 				if !in(nx, ny) {
 					continue
 				}
