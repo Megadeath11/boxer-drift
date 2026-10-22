@@ -135,6 +135,81 @@ var solutions = []func(s *sim.Sim) map[sim.Mat]int{
 		cu += place(s, 260, 120, 266, 121, sim.Copper)
 		return map[sim.Mat]int{sim.Copper: cu, sim.Gold: au, sim.Turbine: tu, sim.Battery: b}
 	},
+	// 13. From Scratch: a home-built coal boiler
+	func(s *sim.Sim) map[sim.Mat]int {
+		u := pot(s, 40, 60, 170, 100)
+		u[sim.Copper] += place(s, 70, 100, 329, 101, sim.Copper)
+		u[sim.Copper] += place(s, 328, 101, 329, 176, sim.Copper)
+		u[sim.Coal] = place(s, 43, 174, 97, 192, sim.Coal) // right up under the pot
+		light(s, 44, 97, 173)
+		return u
+	},
+	// 14. Hot Ground: a home-built boiler standing in the lava
+	func(s *sim.Sim) map[sim.Mat]int {
+		u := pot(s, 145, 70, 184, 60)
+		u[sim.Copper] += place(s, 28, 60, 333, 61, sim.Copper)
+		u[sim.Copper] += place(s, 28, 61, 29, 176, sim.Copper)
+		u[sim.Copper] += place(s, 332, 61, 333, 64, sim.Copper)
+		return u
+	},
+	// 15. Acid Rain: copper under a glass awning butted against the shelter
+	func(s *sim.Sim) map[sim.Mat]int {
+		cu := place(s, 98, 90, 322, 91, sim.Copper)
+		cu += place(s, 321, 91, 322, 176, sim.Copper)
+		return map[sim.Mat]int{sim.Copper: cu, sim.Glass: place(s, 104, 80, 336, 81, sim.Glass)}
+	},
+	// 16. Long Night: hilltop turbines, a battery bank, one bus
+	func(s *sim.Sim) map[sim.Mat]int {
+		u := map[sim.Mat]int{}
+		u[sim.Turbine] = place(s, 48, 88, 66, 89, sim.Turbine)
+		u[sim.Copper] = place(s, 60, 89, 61, 100, sim.Copper) +
+			place(s, 60, 80, 301, 81, sim.Copper) +
+			place(s, 60, 81, 61, 88, sim.Copper) +
+			place(s, 128, 81, 129, 176, sim.Copper) +
+			place(s, 188, 81, 189, 176, sim.Copper) +
+			place(s, 248, 81, 249, 176, sim.Copper) +
+			place(s, 300, 81, 301, 94, sim.Copper) +
+			place(s, 165, 71, 166, 80, sim.Copper)
+		u[sim.Battery] = place(s, 150, 70, 178, 71, sim.Battery)
+		return u
+	},
+	// 17. Final Exam: a vent boiler, gold under the wall, wind and batteries
+	func(s *sim.Sim) map[sim.Mat]int {
+		u := pot(s, 25, 70, 184, 70)
+		u[sim.Copper] += place(s, 38, 70, 171, 71, sim.Copper) + // the bus, west of the wall
+			place(s, 38, 56, 39, 70, sim.Copper) + // up to the floating beacon
+			place(s, 128, 71, 129, 176, sim.Copper) +
+			place(s, 170, 71, 171, 160, sim.Copper) +
+			place(s, 200, 70, 201, 160, sim.Copper) +
+			place(s, 200, 70, 339, 71, sim.Copper) + // the bus, east of the wall
+			place(s, 234, 71, 235, 176, sim.Copper) +
+			place(s, 290, 71, 291, 94, sim.Copper) +
+			place(s, 338, 71, 339, 176, sim.Copper) +
+			place(s, 259, 59, 260, 70, sim.Copper) +
+			place(s, 312, 61, 313, 70, sim.Copper)
+		u[sim.Gold] = place(s, 170, 160, 171, 187, sim.Gold) + // under the wall, through the acid
+			place(s, 170, 186, 201, 187, sim.Gold) +
+			place(s, 200, 160, 201, 186, sim.Gold)
+		u[sim.Turbine] += place(s, 250, 58, 268, 59, sim.Turbine)
+		u[sim.Battery] = place(s, 300, 60, 325, 61, sim.Battery)
+		return u
+	},
+}
+
+// pot builds a boiler out of parts like a player would: an iron pot whose
+// bottom sits at design y bottom, water, a turbine lid, and a copper lead
+// from the lid up to wireY. It returns the cells used per material.
+func pot(s *sim.Sim, x0, w, bottom, wireY int) map[sim.Mat]int {
+	u := map[sim.Mat]int{}
+	x1 := x0 + w
+	u[sim.Metal] += place(s, x0, bottom-43, x0+3, bottom, sim.Metal)
+	u[sim.Metal] += place(s, x1-3, bottom-43, x1, bottom, sim.Metal)
+	u[sim.Metal] += place(s, x0+3, bottom-3, x1-3, bottom, sim.Metal)
+	u[sim.Water] += place(s, x0+3, bottom-23, x1-3, bottom-3, sim.Water)
+	u[sim.Turbine] += place(s, x0+3, bottom-45, x1-3, bottom-43, sim.Turbine)
+	lead := x0 + w/2
+	u[sim.Copper] += place(s, lead, wireY, lead+1, bottom-45, sim.Copper)
+	return u
 }
 
 // light holds a small flame along y from design x0 to x1, like a player would.
@@ -297,5 +372,16 @@ func TestTheGridNeedsBatteries(t *testing.T) {
 	}
 	if held(l, s, 40) {
 		t.Fatal("won without batteries")
+	}
+}
+
+// Acid Rain eats a bare copper wire: it needs shelter (or gold).
+func TestAcidRainEatsBareCopper(t *testing.T) {
+	l := All[14]
+	s := setup(l)
+	place(s, 98, 90, 322, 91, sim.Copper)
+	place(s, 321, 91, 322, 176, sim.Copper)
+	if held(l, s, 40) {
+		t.Fatal("a bare copper wire survived the acid rain")
 	}
 }

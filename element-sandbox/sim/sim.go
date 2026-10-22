@@ -341,14 +341,14 @@ func (s *Sim) react(x, y, i int) bool {
 				return true
 			}
 		case Metal:
-			if canRust(n) && s.chance(0.0004) {
+			if canRust(n) && s.chance(0.00003) {
 				s.become(j, Rust)
 			}
 		}
 	case SaltWater:
 		switch n.M {
 		case Metal:
-			if canRust(n) && s.chance(0.002) {
+			if canRust(n) && s.chance(0.0002) {
 				s.become(j, Rust)
 			}
 		case Ice, Snow:

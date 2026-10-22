@@ -97,6 +97,14 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 11. **Eruption**: the beacon sits in a pit at the foot of an erupting volcano. Lava melts copper, so the wire into the pit has to be platinum or titanium. Hold for 25 seconds.
 12. **The Grid**: four beacons, a boiler that can't run them all, an acid trench, a windy hill and gusts. Everything you've learned at once.
 
+**Expert levels.** Nothing is built for you, the briefings only say what's wanted, budgets are tight and holds are long:
+
+13. **From Scratch**: a beacon, an empty field and a pile of parts (iron, water, turbine blades, coal). Build your own boiler.
+14. **Hot Ground**: a lava pool, two beacons (one on a high ledge), no fuel.
+15. **Acid Rain**: acid drizzles down, with heavy downpours. Watch where the runoff goes.
+16. **Long Night**: short gusts, long calms, four beacons, 30 seconds.
+17. **Final Exam**: five beacons, one hanging in mid-air; hot ground, an acid moat, gusty wind. 30 seconds.
+
 ## Electricity
 
 - **Generators**:

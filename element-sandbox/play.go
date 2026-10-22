@@ -71,11 +71,16 @@ func (g *Game) menuItems() []menuItem {
 		wide("Campaign  (story mode: start here, with a tutorial)", itemCampNew)
 	}
 	wide("Sandbox  (free play, every material)", itemSandbox)
-	rows := (len(levels.All) + 1) / 2
+	cols := 2
+	if len(levels.All) > 12 {
+		cols = 3 // the expert levels need a third column
+	}
+	bw := (menuWide - (cols-1)*menuGap) / cols
+	rows := (len(levels.All) + cols - 1) / cols
 	for k, l := range levels.All {
 		col, r := k/rows, k%rows
 		items = append(items, menuItem{label: l.Name, level: k, locked: k > g.unlocked,
-			x: left + col*(menuBtnW+menuGap), y: menuTop + (row+r)*(menuBtnH+menuGap), w: menuBtnW})
+			x: left + col*(bw+menuGap), y: menuTop + (row+r)*(menuBtnH+menuGap), w: bw})
 	}
 	row += rows
 	wide("Quit", itemQuit)

@@ -481,11 +481,11 @@ func init() {
 	m.Conduct = 0.12
 	m = dev(Beacon, "Beacon", "Level goal. Each beacon needs 12 power. Power them all to win.",
 		rgb(40, 75, 55), DevBeacon, 12)
-	m.Hardness = 99
+	m.Hardness, m.AcidProof = 99, true // a level's goal can't be destroyed
 	// a house is a beacon in disguise: one connected house needs 12 power
 	m = dev(House, "House", "A home in the town. Each house needs 12 power to light up.",
 		rgb(150, 122, 92), DevBeacon, 12)
-	m.Hardness, m.Conduct = 99, 0.02
+	m.Hardness, m.Conduct, m.AcidProof = 99, 0.02, true
 
 	// ---- Nature ----
 	m = def(Roof, "Roof", "The sky's ceiling. Cold: steam condenses on it and rains back down.", SSolid, rgb(46, 52, 70), 9999)
