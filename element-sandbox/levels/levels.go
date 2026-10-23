@@ -38,6 +38,9 @@ type Level struct {
 	// Tick, if set, runs scripted events (gusts, eruptions...) before each
 	// simulation step; frame counts from 0 when the level starts.
 	Tick func(s *sim.Sim, frame int)
+	// Hints are revealed one at a time when the player asks (I key), from a
+	// gentle nudge to nearly the answer.
+	Hints []string
 }
 
 // HoldTime is how many frames the goal must be held to win.

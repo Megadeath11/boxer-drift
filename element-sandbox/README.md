@@ -158,13 +158,14 @@ Pick a level from the main menu. Each one gives you a few materials in limited a
 | `Z` / `X`, `Home` | Zoom in / out, show the whole map |
 | `←` `→` / `↓` | Global wind / calm |
 | `Space` / `N` | Pause / single step |
-| `T` | Heat (temperature) view |
-| `V` | Show wind / air flow |
+| `T` | Thermal (temperature) view: a badge at the top shows when it's on |
+| `V` | Wind view (air flow): a badge at the top shows when it's on |
 | `O` | Roof on / off |
 | `K` / `L` | Next season / lock the season |
 | `J` / `P` | Seasons on / off, weather on / off |
 | `C` twice | Clear everything (sandbox) |
 | `R` | Restart level |
+| `I` | A hint, in the harder levels (8 on): each press reveals one more, from a nudge to nearly the answer |
 | `Ctrl+Z` | Undo your last action: a stroke, a kit, a bomb, a clear (up to 15 steps; the world rewinds to just before it) |
 | `Esc` | Main menu (Esc again, or Resume, goes back to your game) |
 | `F11` | Fullscreen |

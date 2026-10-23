@@ -128,6 +128,8 @@ type Game struct {
 	restartAsk int             // frames left to confirm restarting a stage
 
 	undo []undoStep // Ctrl+Z history, oldest first
+
+	hintsShown int // hints revealed in the current level (I key)
 	// waitRelease ignores the mouse until the click that closed a menu or
 	// overlay is released, so it doesn't also paint
 	waitRelease bool
@@ -277,6 +279,15 @@ func (g *Game) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyV) {
 		g.showWind = !g.showWind
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyI) && g.level >= 0 {
+		if h := levelAt(g.level).Hints; g.hintsShown < len(h) {
+			g.hintsShown++
+		} else if len(h) == 0 {
+			g.say("No hints for this level: you've got this")
+		} else {
+			g.say("That's every hint for this level")
+		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyH) || inpututil.IsKeyJustPressed(ebiten.KeyF1) {
 		g.help = !g.help
@@ -564,6 +575,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.showWind {
 		g.drawWind(screen)
 	}
+	g.drawViewBadges(screen)
 
 	mx, my := ebiten.CursorPosition()
 	if mx < simW && my < simH {
@@ -782,8 +794,17 @@ func (g *Game) drawStatus(screen *ebiten.Image, mx, my int) {
 		}
 	}
 	st := g.sim.Stats
-	s := fmt.Sprintf("%s | Brush %d | Zoom %.1fx | Wind %s%s | Power %.0f/%.0f | H help | %.0f FPS",
-		state, g.brush, g.zoom, wind, roof, st.Used, st.Generated, ebiten.ActualFPS())
+	view := "normal"
+	switch {
+	case g.view == sim.ViewHeat && g.showWind:
+		view = "thermal + wind"
+	case g.view == sim.ViewHeat:
+		view = "thermal"
+	case g.showWind:
+		view = "wind"
+	}
+	s := fmt.Sprintf("%s | Brush %d | Zoom %.1fx | Wind %s%s | View %s | Power %.0f/%.0f | H help | %.0f FPS",
+		state, g.brush, g.zoom, wind, roof, view, st.Used, st.Generated, ebiten.ActualFPS())
 	g.text(screen, s, 8, simH+7, colText)
 	if mx >= 0 && mx < simW && my >= 0 && my < simH {
 		cx, cy := g.toCell(mx, my)
@@ -806,7 +827,8 @@ var helpLines = []string{
 	"Left / Right     global wind  (Down = calm)",
 	"Space            pause    N  single step",
 	"Ctrl+Z           undo your last action (up to 15)",
-	"T  heat view     V  show air flow",
+	"T  thermal view  V  wind view (air flow)",
+	"I  a hint (in the harder levels)",
 	"O  roof on/off   C twice  clear everything",
 	"K  next season   L  lock season",
 	"J  seasons on/off   P  weather on/off",
@@ -887,4 +909,35 @@ func abs(v int) int {
 		return -v
 	}
 	return v
+}
+
+// drawViewBadges shows which special views are on, so the thermal colours
+// or wind arrows are never a mystery.
+func (g *Game) drawViewBadges(screen *ebiten.Image) {
+	var badges []struct {
+		label string
+		col   color.RGBA
+	}
+	if g.view == sim.ViewHeat {
+		badges = append(badges, struct {
+			label string
+			col   color.RGBA
+		}{"THERMAL VIEW   T to turn off", color.RGBA{255, 140, 60, 255}})
+	}
+	if g.showWind {
+		badges = append(badges, struct {
+			label string
+			col   color.RGBA
+		}{"WIND VIEW   V to turn off", color.RGBA{120, 220, 255, 255}})
+	}
+	y := float32(8)
+	for _, b := range badges {
+		w := float32(len(b.label)*7 + 20)
+		x := float32(simW)/2 - w/2
+		vector.DrawFilledRect(screen, x, y, w, 20, color.RGBA{10, 12, 18, 220}, false)
+		vector.StrokeRect(screen, x+0.5, y+0.5, w-1, 19, 1, b.col, false)
+		vector.DrawFilledRect(screen, x+6, y+7, 6, 6, b.col, false)
+		g.text(screen, b.label, int(x)+16, int(y)+3, b.col)
+		y += 24
+	}
 }

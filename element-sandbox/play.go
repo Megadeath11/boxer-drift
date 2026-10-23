@@ -191,7 +191,7 @@ func (g *Game) startLevel(k int) {
 	g.mode, g.level, g.inGame = modePlay, k, true
 	g.placed = [sim.NumMats]int{}
 	g.won, g.brief, g.hold, g.paused, g.help = false, true, 0, false, false
-	g.lframe = 0
+	g.lframe, g.hintsShown = 0, 0
 	g.resetCamera()
 	g.sim.Climate = sim.Climate{} // levels opt in to seasons in Build
 	g.sim.Ambient = sim.DefaultAmbient
@@ -273,6 +273,7 @@ func (g *Game) drawLevelHUD(screen *ebiten.Image) {
 	bw := float32(284)
 	vector.DrawFilledRect(screen, x+8, y+51+extra, bw, 5, color.RGBA{40, 44, 56, 255}, false)
 	vector.DrawFilledRect(screen, x+8, y+51+extra, bw*min(1, float32(g.hold)/float32(l.HoldTime())), 5, color.RGBA{90, 255, 140, 255}, false)
+	g.drawHints(screen, &l, x, y+70+extra)
 
 	switch {
 	case g.brief:
@@ -282,8 +283,11 @@ func (g *Game) drawLevelHUD(screen *ebiten.Image) {
 		if l.MaxPPM > 0 {
 			goal = fmt.Sprintf("Goal: beacons on and CO2 <= %.0f ppm for %d seconds.", l.MaxPPM, secs)
 		}
-		lines = append(lines, "", goal,
-			"R restarts, Esc for menu, H for controls.", "", "Click or press Enter to start.")
+		lines = append(lines, "", goal)
+		if n := len(l.Hints); n > 0 {
+			lines = append(lines, fmt.Sprintf("Stuck? Press I for a hint (%d available).", n))
+		}
+		lines = append(lines, "R restarts, Esc for menu, H for controls.", "", "Click or press Enter to start.")
 		g.drawPanel(screen, lines, colAccent)
 	case g.won:
 		next := "Click or press Enter for the next level."
@@ -351,3 +355,40 @@ const (
 )
 
 func levelAt(k int) *levels.Level { return &levels.All[k] }
+
+// drawHints lists the hints the player has asked for, under the level panel,
+// and how many more there are.
+func (g *Game) drawHints(screen *ebiten.Image, l *levels.Level, x, y float32) {
+	if len(l.Hints) == 0 || g.brief {
+		return
+	}
+	var lines []string
+	for k := 0; k < g.hintsShown; k++ {
+		for j, w := range wrap(l.Hints[k], 46) {
+			prefix := "   "
+			if j == 0 {
+				prefix = fmt.Sprintf("%d. ", k+1)
+			}
+			lines = append(lines, prefix+w)
+		}
+	}
+	more := len(l.Hints) - g.hintsShown
+	footer := fmt.Sprintf("I: a hint (%d left)", more)
+	switch {
+	case more == 0:
+		footer = "That's every hint."
+	case g.hintsShown > 0:
+		footer = fmt.Sprintf("I: another hint (%d left)", more)
+	}
+	w := len(footer) * 7
+	for _, line := range lines {
+		w = max(w, len(line)*7)
+	}
+	h := float32(len(lines)*14 + 22)
+	vector.DrawFilledRect(screen, x, y, float32(w+16), h, color.RGBA{10, 12, 18, 200}, false)
+	hintCol := color.RGBA{150, 210, 255, 255}
+	for k, line := range lines {
+		g.text(screen, line, int(x)+8, int(y)+5+k*14, hintCol)
+	}
+	g.text(screen, footer, int(x)+8, int(y)+5+len(lines)*14, colDim)
+}

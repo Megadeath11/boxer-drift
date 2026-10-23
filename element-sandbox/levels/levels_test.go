@@ -385,3 +385,12 @@ func TestAcidRainEatsBareCopper(t *testing.T) {
 		t.Fatal("a bare copper wire survived the acid rain")
 	}
 }
+
+// The harder levels (8 on) come with hints.
+func TestHarderLevelsHaveHints(t *testing.T) {
+	for _, l := range All[7:] {
+		if len(l.Hints) < 2 {
+			t.Errorf("%s has %d hints", l.Name, len(l.Hints))
+		}
+	}
+}
