@@ -113,3 +113,41 @@ func TestLeavesFallInAutumn(t *testing.T) {
 		t.Fatalf("leaves did not fall: %d -> %d", leaves, count(s, Leaf))
 	}
 }
+
+// A tree beside lava catches fire, but it must burn out: a scorched tree
+// mustn't keep growing fresh leaves into the heat and feeding the fire.
+func TestTreeByLavaBurnsOut(t *testing.T) {
+	s := New()
+	s.Climate = Climate{Enabled: true, Locked: true, YearFrames: 60 * 60 * 4}
+	s.Climate.SetSeason(Summer)
+	s.AddRoof(4)
+	s.Fill(0, H-10, W, H, Wall, true)
+	s.Fill(0, H-16, W, H-10, Dirt, true)
+	s.Fill(200, H-16, 240, H-10, Lava, true) // a vent
+	for _, x := range []int{196, 244, 250} {
+		s.Fill(x, H-17, x+1, H-16, Seed, false)
+	}
+	burning := func() int {
+		n := 0
+		for i := range s.Cells {
+			if s.Cells[i].M == Fire || s.Cells[i].Flags&fBurning != 0 {
+				n++
+			}
+		}
+		return n
+	}
+	peak := 0
+	for f := 0; f < 60*90; f++ {
+		s.Step()
+		peak = max(peak, burning())
+	}
+	tail := 0
+	for f := 0; f < 60*30; f++ {
+		s.Step()
+		tail += burning()
+	}
+	t.Logf("peak %d burning cells; %.1f on average over the last 30 s; %.0f ppm", peak, float64(tail)/(60*30), s.Climate.PPM)
+	if float64(tail)/(60*30) > 5 {
+		t.Fatal("the trees by the lava are still burning after 90 s")
+	}
+}

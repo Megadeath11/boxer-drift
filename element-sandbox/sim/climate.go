@@ -155,11 +155,22 @@ func (s *Sim) seedSprout(x, y, i int) bool {
 //
 // A trunk cell with Life > 0 is a growing tip; Life == -1 marks the crown,
 // which (re)grows a ball of leaves around it each spring and summer.
+const (
+	growMaxT = 50  // °C: trees don't push new growth into air hotter than this
+	scorchT  = 100 // °C: a trunk this hot dies
+)
+
 func (s *Sim) growTree(x, y, i int) {
 	c := &s.Cells[i]
 	g := s.growth()
 	if c.M == Leaf {
 		s.leaf(x, y, i, g)
+		return
+	}
+	if c.T > scorchT {
+		// scorched: the tree dies and becomes dead wood, which burns once
+		// and is gone, instead of growing fresh leaves into the heat forever
+		s.become(i, Wood)
 		return
 	}
 	switch {
@@ -178,7 +189,7 @@ func (s *Sim) growTree(x, y, i int) {
 		}
 		j := ny*W + nx
 		st := mats[s.Cells[j].M].State
-		if st != SEmpty && st != SGas && s.Cells[j].M != Leaf {
+		if st != SEmpty && st != SGas && s.Cells[j].M != Leaf || s.Cells[j].T > growMaxT {
 			c.Life = -1 // blocked: this is as tall as it gets
 			return
 		}
@@ -198,7 +209,7 @@ func (s *Sim) growTree(x, y, i int) {
 			d := s.sign()
 			for b := 1; b <= 2+s.ri(4); b++ {
 				bx, by := x+d*b, y-b/2
-				if !in(bx, by) || s.Cells[by*W+bx].M != Empty {
+				if !in(bx, by) || s.Cells[by*W+bx].M != Empty || s.Cells[by*W+bx].T > growMaxT {
 					break
 				}
 				s.put(by*W+bx, Trunk)
@@ -217,7 +228,7 @@ func (s *Sim) growTree(x, y, i int) {
 				continue
 			}
 			lx, ly := x+int(dx), y+int(dy)
-			if in(lx, ly) && s.Cells[ly*W+lx].M == Empty {
+			if in(lx, ly) && s.Cells[ly*W+lx].M == Empty && s.Cells[ly*W+lx].T <= growMaxT {
 				s.put(ly*W+lx, Leaf)
 			}
 		}
