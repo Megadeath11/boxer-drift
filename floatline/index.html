@@ -51,13 +51,20 @@
   .cols { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; font-size:13px; line-height:1.5; }
   .cols h4 { margin:4px 0; }
   #help { bottom:10px; left:50%; transform:translateX(-50%); font-size:12px; padding:6px 12px; }
+  body.split #topbar, body.split #help, body.split #centerMsg { left:31%; }
+  body.split #defHud, body.split #stats { display:none !important; }
+  #divider { position:absolute; top:0; bottom:0; left:62%; width:4px; margin-left:-2px; background:#1d2330; display:none; }
+  body.split #divider, body.split #specHud { display:block; }
+  #specHud { display:none; top:10px; right:10px; width:200px; }
+  #specHud h3 { color:var(--def); }
+  #coverage { margin-top:6px; font-size:12px; font-weight:700; color:#c0392b; }
 </style>
 </head>
 <body>
 
 <div id="topbar" class="panel hidden">
-  <div><span class="small">GATE</span><div class="bar"><div id="gateBar" style="width:100%"></div></div></div>
-  <div id="timer">4:00</div>
+  <div><span class="small">GATE <b id="gateNum"></b></span><div class="bar"><div id="gateBar" style="width:100%"></div></div></div>
+  <div><div class="small" id="roundLbl" style="text-align:center">Round 1</div><div id="timer">0:00</div></div>
   <div class="small" id="phaseLbl">Setup</div>
 </div>
 
@@ -67,7 +74,7 @@
   <div class="row"><span>Progress</span><b id="aProg">0%</b></div>
   <div class="row"><span>Dash</span><b id="aDash">ready</b></div>
   <div class="row"><span>Runs / Gate hits</span><b id="aRuns">0 / 0</b></div>
-  <div class="small" style="margin-top:4px">WASD move · Space jump · Shift dash · C camera</div>
+  <div class="small" style="margin-top:4px">WASD move · Space jump · Shift dash · Q/E or drag mouse to turn camera</div>
 </div>
 
 <div id="stats" class="panel hidden">
@@ -80,7 +87,7 @@
 <div id="defHud" class="panel hidden">
   <h3>Defender</h3>
   <div id="money">$0</div>
-  <div class="small">+$<span id="income">7</span>/s · +$12 per layer popped</div>
+  <div class="small">+$200 or more each round · +$12 per layer popped</div>
   <div id="hotbar"></div>
   <div id="selPanel" class="hidden">
     <div class="row"><b id="selName"></b><span id="selLvl" class="small"></span></div>
@@ -90,32 +97,41 @@
       <button class="act alt" id="sellBtn">Sell (X)</button>
     </div>
   </div>
-  <div style="margin-top:8px"><button class="act" id="readyBtn">Start now</button></div>
-  <div class="small" style="margin-top:4px">Mouse place · 1–5 pick · Right-click / Esc cancel</div>
+  <div id="coverage"></div>
+  <div style="margin-top:8px"><button class="act" id="readyBtn">Done building (Enter)</button></div>
+  <div class="small" style="margin-top:4px">Mouse place · 1–5 pick · Shift+click place several · Right-click / Esc cancel. While you place a tower, you can see where its shots will go.</div>
 </div>
 
-<div id="help" class="panel hidden">P pause · C toggle chase camera · Tack, spike and frost hazards hug the ground: jump them</div>
+<div id="divider"></div>
+<div id="specHud" class="panel">
+  <h3>Defender: watching</h3>
+  <div class="row"><span>Money</span><b id="specMoney">$0</b></div>
+  <div class="row"><span>Layers popped</span><b id="specPops">0</b></div>
+  <div class="small">You can build again after the run. Scroll here to zoom.</div>
+</div>
+
+<div id="help" class="panel hidden">P pause · Tack, spike and frost hazards hug the ground: jump them</div>
 <div id="centerMsg" style="opacity:0"></div>
 
 <div id="menu" class="overlay">
   <div class="card">
     <h1>FLOATLINE</h1>
-    <div class="small" style="font-size:14px">Two players, one keyboard and mouse. One of you is the balloon, the other builds the defense.</div>
+    <div class="small" style="font-size:14px">Two players, one keyboard and mouse. The defender builds, then the balloon runs the track while the defender watches. That repeats for 10 rounds.</div>
     <div class="maps" id="mapList"></div>
     <div class="cols">
       <div>
         <h4 style="color:var(--accent)">Balloon (keyboard)</h4>
         Spend stat points on <b>Health</b>, <b>Speed</b>, <b>Regrow</b>, <b>Jump</b> and <b>Camo</b> (camo shrinks tower range).<br>
-        <b>WASD</b> moves you along the track. You can weave side to side, but you can't leave it.<br>
+        You play in a close third-person camera on the left side of the screen. <b>WASD</b> moves you (you can't leave the track). <b>Q/E</b> or dragging the mouse turns the camera.<br>
         <b>Space</b> jumps over tacks, spikes and frost pulses. <b>Shift</b> dashes to slip past darts and mortar shells.<br>
-        Reach the gate and every layer you have left is taken off its HP. You get +1 stat point after every run.
+        Reach the gate and every layer you have left is taken off its HP. You get +1 stat point every round.
       </div>
       <div>
         <h4 style="color:var(--def)">Defender (mouse)</h4>
-        Place towers beside the track. <b>Spike Piles</b> go on the track itself.<br>
-        Click a tower to <b>upgrade</b> or <b>sell</b> it.<br>
-        You earn money over time and for every layer you pop.<br>
-        Hold out until the clock runs out to win. The balloon wins if the gate's HP hits zero.
+        Between runs you build from the top-down view. While you place a tower, you can watch where its shots would go. <b>Spike Piles</b> go on the track itself.<br>
+        Click a tower to <b>upgrade</b> or <b>sell</b> it. During a run you watch from above on the right.<br>
+        You earn money every round and for every layer you pop.<br>
+        If the gate survives all 10 rounds, you win. The balloon wins if the gate's HP hits zero.
       </div>
     </div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="act" id="startBtn" style="font-size:18px;padding:10px 22px;background:var(--accent)">Start match</button></div>
@@ -203,8 +219,10 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 400);   // top-down build view
 camera.position.set(0, 62, 54); camera.lookAt(0, 0, 4);
+const tpCam = new THREE.PerspectiveCamera(62, 1, 0.1, 400);   // balloon third-person
+const specCam = new THREE.PerspectiveCamera(50, 1, 0.1, 400); // defender spectator
 scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 1.1));
 const sun = new THREE.DirectionalLight(0xffffff, 2.0);
 sun.position.set(30, 60, 20); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
@@ -213,7 +231,7 @@ sun.shadow.bias = -0.0005;
 scene.add(sun);
 let world = new THREE.Group(); scene.add(world);
 
-addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); });
 
 // ---------------------------------------------------------------- path
 class Path {
@@ -241,24 +259,25 @@ class Path {
 const frame = () => ({ pos: new THREE.Vector3(), tan: new THREE.Vector3(), side: new THREE.Vector3() });
 
 // ---------------------------------------------------------------- game state
-const G = { phase: 'menu', mapIdx: 0, towers: [], proj: [], fx: [], money: 0, gate: 40, gateMax: 40, time: 240, setupT: 20, respawnT: 0, runs: 0, gateHits: 0, popped: 0, income: 7, paused: false, chase: false, h: () => 0 };
+const G = { phase: 'menu', mapIdx: 0, towers: [], proj: [], fx: [], money: 0, gate: 40, gateMax: 40, round: 1, maxRounds: 10, buildT: 0, countT: 0, runT: 0, runLimit: 90, gateHits: 0, popped: 0, layersPopped: 0, paused: false, h: () => 0 };
+const TP = { yaw: 0, pitch: 0.36, dist: 7.5, manualT: 0, dragging: false, lx: 0, ly: 0, pos: new THREE.Vector3(), specZoom: 34 };
 const A = { stats: { health: 3, speed: 3, regrow: 1, jump: 2, camo: 1 }, pool: 10, cur: 0, s: 0, lat: 0, jumpZ: 0, vy: 0, layers: 0, maxLayers: 0, speed: 0, regen: Infinity, jumpV: 0, camoMul: 1, regenT: 0, sinceHit: 0, invuln: 0, dashT: 0, dashCD: 0, freezeT: 0, slowMul: 1, pos: new THREE.Vector3(), vel: new THREE.Vector3(), face: 0, jumpHeld: false };
 const F = frame();
 
 // ---------------------------------------------------------------- world building
 function std(color, o = {}) { return new THREE.MeshStandardMaterial({ color, roughness: 0.75, flatShading: true, ...o }); }
 
-function ribbon(path, half, lift, color, step = 2) {
+function ribbon(path, half, lift, color, step = 2, i0 = 0, i1 = path.N, material = null) {
   const h = G.h, verts = [], idx = [], cols = 5;
   let rows = 0;
-  for (let i = 0; i <= path.N; i += step) {
+  for (let i = i0; i <= i1; i += step) {
     const p = path.pts[i], sd = new THREE.Vector3(path.tan[i].z, 0, -path.tan[i].x);
     for (let c = 0; c < cols; c++) { const o = lerp(-half, half, c / (cols - 1)); const x = p.x + sd.x * o, z = p.z + sd.z * o; verts.push(x, h(x, z) + lift, z); }
     rows++;
   }
   for (let r = 0; r < rows - 1; r++) for (let c = 0; c < cols - 1; c++) { const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1; idx.push(a, d, b, b, d, e); }
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3)); geo.setIndex(idx); geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  const m = new THREE.Mesh(geo, material || new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   m.receiveShadow = true; return m;
 }
 
@@ -383,7 +402,7 @@ let placing = null, ghost = null, selected = null;
 const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2(); let mouseOn = false, hover = null;
 
 function setPlacing(type) {
-  if (G.phase === 'menu' || G.phase === 'over') return;
+  if (G.phase !== 'build' && type) return;
   if (ghost) { world.remove(ghost); ghost = null; }
   placing = placing === type ? null : type;
   if (placing) {
@@ -391,7 +410,7 @@ function setPlacing(type) {
     ghost = makeTowerMesh(placing, 0, TOWERS[placing].uses?.[0]);
     ghost.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.55; o.castShadow = false; } });
     ghost.visible = false; world.add(ghost);
-  } else rangeLoop.visible = false;
+  } else { rangeLoop.visible = false; clearPreview(); }
   refreshHotbar();
 }
 
@@ -430,7 +449,7 @@ function rebuildTower(t) {
 function selectTower(t) {
   selected = t;
   $('selPanel').classList.toggle('hidden', !t);
-  if (!t) { if (!placing) rangeLoop.visible = false; return; }
+  if (!t) { if (!placing) { rangeLoop.visible = false; clearPreview(); } return; }
   updateSelPanel();
 }
 function updateSelPanel() {
@@ -441,17 +460,24 @@ function updateSelPanel() {
   $('upBtn').textContent = t.level ? 'Maxed' : `Upgrade $${D.up} (U)`;
   $('sellBtn').textContent = `Sell $${Math.floor(t.spent * 0.7)} (X)`;
   if (D.range) showRange(t.x, t.z, D.range[t.level], true); else rangeLoop.visible = false;
+  setPreview(t.type, t.level, t.x, t.z, true);
 }
-function upgradeSel() { const t = selected; if (!t || t.level) return; const D = TOWERS[t.type]; if (G.money < D.up) return; G.money -= D.up; t.spent += D.up; t.level = 1; if (t.type === 'spike') t.uses = D.uses[1]; rebuildTower(t); sfx('place'); updateSelPanel(); }
-function sellSel() { const t = selected; if (!t) return; G.money += Math.floor(t.spent * 0.7); removeTower(t); selectTower(null); }
+function upgradeSel() { const t = selected; if (!t || t.level || G.phase !== 'build') return; const D = TOWERS[t.type]; if (G.money < D.up) return; G.money -= D.up; t.spent += D.up; t.level = 1; if (t.type === 'spike') t.uses = D.uses[1]; rebuildTower(t); sfx('place'); updateSelPanel(); }
+function sellSel() { const t = selected; if (!t || G.phase !== 'build') return; G.money += Math.floor(t.spent * 0.7); removeTower(t); selectTower(null); }
 function removeTower(t) { world.remove(t.mesh); G.towers.splice(G.towers.indexOf(t), 1); if (selected === t) selectTower(null); }
 
 const cv = renderer.domElement;
-cv.addEventListener('pointermove', e => { mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouseOn = true; });
+cv.addEventListener('pointermove', e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouseOn = true;
+  if (TP.dragging) { TP.yaw -= (e.clientX - TP.lx) * 0.006; TP.pitch = clamp(TP.pitch + (e.clientY - TP.ly) * 0.004, 0.05, 1.1); TP.lx = e.clientX; TP.ly = e.clientY; TP.manualT = 1.8; }
+});
+addEventListener('pointerup', () => { TP.dragging = false; });
+cv.addEventListener('wheel', e => { if (isSplit() && e.clientX > innerWidth * 0.62) TP.specZoom = clamp(TP.specZoom + e.deltaY * 0.03, 14, 70); }, { passive: true });
 cv.addEventListener('pointerleave', () => { mouseOn = false; });
 cv.addEventListener('contextmenu', e => { e.preventDefault(); if (placing) setPlacing(placing); else selectTower(null); });
 cv.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || G.phase === 'menu' || G.phase === 'over' || G.paused) return;
+  if (isSplit() && e.clientX < innerWidth * 0.62) { TP.dragging = true; TP.lx = e.clientX; TP.ly = e.clientY; return; }
+  if (e.button !== 0 || G.phase !== 'build' || G.paused) return;
   mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   if (placing) {
     const p = groundHit();
@@ -469,12 +495,13 @@ cv.addEventListener('pointerdown', e => {
 function updateGhost() {
   if (!placing || !ghost) return;
   const p = mouseOn ? groundHit() : null;
-  if (!p) { ghost.visible = false; rangeLoop.visible = false; return; }
+  if (!p) { ghost.visible = false; rangeLoop.visible = false; clearPreview(); return; }
   const ok = validSpot(placing, p.x, p.z) && G.money >= TOWERS[placing].cost;
   ghost.visible = true; ghost.position.set(p.x, G.h(p.x, p.z), p.z);
   ghost.traverse(o => { if (o.isMesh) o.material.emissive?.set(ok ? 0x000000 : 0xaa0000); });
   const D = TOWERS[placing];
-  if (D.range) showRange(p.x, p.z, D.range[0], ok); else { showRange(p.x, p.z, 1.0, ok); }
+  if (D.range) showRange(p.x, p.z, D.range[0], ok); else { showRange(p.x, p.z, 1.25, ok); }
+  setPreview(placing, 0, p.x, p.z, ok);
 }
 
 // ---------------------------------------------------------------- UI: hotbar & stats
@@ -486,7 +513,7 @@ TOWER_KEYS.forEach((k, i) => {
 });
 function refreshHotbar() { for (const b of hotbar.children) { b.classList.toggle('sel', placing === b.dataset.k); b.classList.toggle('poor', G.money < TOWERS[b.dataset.k].cost); } }
 $('upBtn').onclick = upgradeSel; $('sellBtn').onclick = sellSel;
-$('readyBtn').onclick = () => { if (G.phase === 'setup') launch(); };
+$('readyBtn').onclick = () => { if (G.phase === 'build') startCountdown(); };
 
 function spentPts() { return Object.values(A.stats).reduce((a, b) => a + b, 0); }
 function renderStats() {
@@ -506,28 +533,26 @@ function adjStat(i, d) { const id = STATS[i].id, v = A.stats[id] + d; if (v < 0 
 
 // ---------------------------------------------------------------- input
 const keys = {};
+const isSplit = () => G.phase === 'run' || G.phase === 'countdown';
 addEventListener('keydown', e => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-  if (e.repeat) { keys[e.code] = true; return; }
   keys[e.code] = true;
-  if (G.phase === 'menu' || G.phase === 'over') return;
-  const statOpen = G.phase === 'setup' || G.phase === 'respawn';
-  if (statOpen) {
+  if (e.repeat || G.phase === 'menu' || G.phase === 'over') return;
+  if (G.phase === 'build') {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') { A.cur = (A.cur + STATS.length - 1) % STATS.length; renderStats(); }
     if (e.code === 'KeyS' || e.code === 'ArrowDown') { A.cur = (A.cur + 1) % STATS.length; renderStats(); }
     if (e.code === 'KeyA' || e.code === 'ArrowLeft') adjStat(A.cur, -1);
     if (e.code === 'KeyD' || e.code === 'ArrowRight') adjStat(A.cur, 1);
-    if (e.code === 'Space' && G.phase === 'respawn' && G.respawnT < 4) launch();
+    const di = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code); if (di >= 0) setPlacing(TOWER_KEYS[di]);
+    if (e.code === 'Escape') { if (placing) setPlacing(placing); else selectTower(null); }
+    if (e.code === 'KeyU') upgradeSel();
+    if (e.code === 'KeyX') sellSel();
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') startCountdown();
   }
-  const di = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code); if (di >= 0) setPlacing(TOWER_KEYS[di]);
-  if (e.code === 'Escape') { if (placing) setPlacing(placing); else selectTower(null); }
-  if (e.code === 'KeyU') upgradeSel();
-  if (e.code === 'KeyX') sellSel();
-  if (e.code === 'KeyC') G.chase = !G.chase;
   if (e.code === 'KeyP') { G.paused = !G.paused; flash(G.paused ? 'PAUSED' : '', G.paused ? 99999 : 1); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; TP.dragging = false; });
 
 // ---------------------------------------------------------------- sound
 let AC = null;
@@ -558,43 +583,142 @@ function ringFx(x, y, z, r, color, life = 0.45) {
 let msgTimer = 0;
 function flash(text, secs = 1.4) { const el = $('centerMsg'); el.textContent = text; el.style.opacity = text ? 1 : 0; msgTimer = secs; }
 
-// ---------------------------------------------------------------- match flow
-function startMatch(i) {
-  G.mapIdx = i; G.towers = []; G.proj = []; G.fx = []; placing = null; ghost = null; selected = null;
-  buildMap(MAPS[i]);
-  Object.assign(G, { money: 650, gate: 40, gateMax: 40, time: 240, phase: 'setup', setupT: 20, runs: 0, gateHits: 0, popped: 0, paused: false });
-  A.pool = 10; A.stats = { health: 3, speed: 3, regrow: 1, jump: 2, camo: 1 }; A.cur = 0;
-  for (const id of ['menu', 'over']) $(id).classList.add('hidden');
-  for (const id of ['topbar', 'attHud', 'defHud', 'help', 'stats']) $(id).classList.remove('hidden');
-  $('readyBtn').classList.remove('hidden'); selectTower(null);
-  renderStats(); refreshHotbar(); flash('BUILD PHASE', 2);
+
+// ---------------------------------------------------------------- live shot preview (build phase)
+const PV = { g: null, key: '', items: [], t: 0, covered: 0 };
+const pvMat = new THREE.MeshBasicMaterial({ color: 0xfff06a });
+const pvLineMat = new THREE.LineBasicMaterial({ color: 0xfff06a, transparent: true, opacity: 0.55 });
+function clearPreview() {
+  if (PV.g) { world.remove(PV.g); PV.g.traverse(o => { if (o.geometry && o.userData.own) o.geometry.dispose(); }); }
+  PV.g = null; PV.items = []; PV.key = ''; PV.covered = 0; $('coverage').textContent = '';
+}
+function pvLine(pts) { const g = new THREE.BufferGeometry().setFromPoints(pts); const l = new THREE.Line(g, pvLineMat); l.userData.own = true; PV.g.add(l); }
+function pvRing(x, y, z, r0, r1, color, opacity) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(r0, r1, 48), new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false }));
+  m.userData.own = true; m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); PV.g.add(m); return m;
+}
+function groundLine(x0, z0, x1, z1, lift, n = 12) { const out = []; for (let i = 0; i <= n; i++) { const x = lerp(x0, x1, i / n), z = lerp(z0, z1, i / n); out.push(new THREE.Vector3(x, Math.max(G.h(x, z), G.water ?? -99) + lift, z)); } return out; }
+
+function setPreview(type, level, x, z, ok) {
+  const key = `${type}|${level}|${x.toFixed(1)}|${z.toFixed(1)}|${ok}`;
+  if (key === PV.key) return;
+  clearPreview(); PV.key = key;
+  const g = PV.g = new THREE.Group(); world.add(g);
+  const D = TOWERS[type], y = G.h(x, z), P = G.path;
+  const range = D.range ? D.range[level] : 1.25;
+
+  // Track the tower can reach, painted red
+  const runs = []; let cur = null; const inIdx = [];
+  for (let i = 0; i <= P.N; i++) {
+    const p = P.pts[i];
+    if (Math.hypot(p.x - x, p.z - z) < range) { inIdx.push(i); if (!cur) { cur = [i, i]; runs.push(cur); } cur[1] = i; } else cur = null;
+  }
+  const covMat = new THREE.MeshBasicMaterial({ color: ok ? 0xff3b3b : 0x777777, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  for (const [a, b] of runs) { PV.covered += P.cum[b] - P.cum[a]; if (b - a >= 2) { const r = ribbon(P, W, 0.22, 0, 1, a, b, covMat); r.userData.own = true; g.add(r); } }
+  $('coverage').textContent = type === 'spike' ? 'Spike: hits whatever rolls over it without jumping' : PV.covered > 0 ? `Covers ${PV.covered.toFixed(0)} m of track` : 'Out of reach of the track!';
+
+  const pick = k => { if (!inIdx.length) return []; const out = []; for (let i = 0; i < k; i++) out.push(P.pts[inIdx[Math.floor((i + 0.5) / k * inIdx.length)]]); return out; };
+  const add = (geo, pts, dur, period, off, orient) => { const m = new THREE.Mesh(geo, pvMat); m.visible = false; g.add(m); if (orient) m.lookAt(pts[pts.length - 1]); PV.items.push({ m, pts, dur, period, off }); };
+
+  if (type === 'dart') {
+    const from = new THREE.Vector3(x, y + 1.55, z);
+    pick(5).forEach((t, i) => {
+      const to = t.clone().setY(t.y + 1.15); pvLine([from, to]);
+      const m = new THREE.Mesh(dartGeo, pvMat); m.position.copy(from); m.lookAt(to); m.visible = false; g.add(m);
+      PV.items.push({ m, pts: [from, to], dur: from.distanceTo(to) / D.speed[level], period: D.rate[level] * 5, off: i * D.rate[level] });
+    });
+  } else if (type === 'tack') {
+    const n = D.count[level];
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2, pts = groundLine(x + Math.cos(a) * 0.9, z + Math.sin(a) * 0.9, x + Math.cos(a) * range, z + Math.sin(a) * range, 0.35);
+      pvLine(pts);
+      const m = new THREE.Mesh(tackGeo, pvMat); m.rotation.y = -a; m.visible = false; g.add(m);
+      PV.items.push({ m, pts, dur: range / D.speed[level], period: D.rate[level], off: 0 });
+    }
+  } else if (type === 'mortar') {
+    const from = new THREE.Vector3(x, y + 1.3, z);
+    pick(3).forEach((t, i) => {
+      const pts = []; for (let k = 0; k <= 24; k++) { const f = k / 24, q = new THREE.Vector3().lerpVectors(from, t, f); q.y += 7 * 4 * f * (1 - f); pts.push(q); }
+      pvLine(pts); pvRing(t.x, t.y + 0.32, t.z, D.radius[level] - 0.15, D.radius[level], 0xff2a2a, 0.75);
+      const m = new THREE.Mesh(shellGeo, pvMat); m.visible = false; g.add(m);
+      PV.items.push({ m, pts, dur: 1.3, period: D.rate[level] * 3, off: i * D.rate[level] });
+    });
+  } else if (type === 'frost') {
+    pvRing(x, y + 0.3, z, 0, range, 0x9be7ff, 0.18);
+    const m = pvRing(x, y + 0.35, z, 0.85, 1, 0xbff0ff, 0.9);
+    PV.items.push({ m, ring: range, dur: 0.55, period: D.pulse[level], off: 0 });
+  } else if (type === 'spike') {
+    const m = pvRing(x, y + 0.3, z, 0.9, 1.0, 0xfff06a, 0.9);
+    PV.items.push({ m, ring: 1.25, dur: 0.8, period: 1.0, off: 0 });
+  }
+}
+function updatePreview(dt) {
+  if (!PV.g) return;
+  PV.t += dt;
+  for (const it of PV.items) {
+    const t = (PV.t + it.off) % it.period;
+    if (t > it.dur) { it.m.visible = false; continue; }
+    it.m.visible = true; const f = t / it.dur;
+    if (it.ring) { it.m.scale.setScalar(Math.max(0.01, f * it.ring)); it.m.material.opacity = 0.9 * (1 - f * 0.7); continue; }
+    const seg = f * (it.pts.length - 1), i = Math.min(Math.floor(seg), it.pts.length - 2);
+    it.m.position.lerpVectors(it.pts[i], it.pts[i + 1], seg - i);
+  }
 }
 
-function launch() {
+// ---------------------------------------------------------------- match flow
+function startMatch(i) {
+  G.mapIdx = i; G.towers = []; G.proj = []; G.fx = []; placing = null; ghost = null; selected = null; PV.g = null;
+  buildMap(MAPS[i]);
+  Object.assign(G, { money: 650, gate: 40, gateMax: 40, round: 1, gateHits: 0, popped: 0, layersPopped: 0, paused: false });
+  A.pool = 10; A.stats = { health: 3, speed: 3, regrow: 1, jump: 2, camo: 1 }; A.cur = 0;
+  for (const id of ['menu', 'over']) $(id).classList.add('hidden');
+  for (const id of ['topbar', 'attHud', 'defHud', 'help']) $(id).classList.remove('hidden');
+  selectTower(null); enterBuild(45, 'ROUND 1: BUILD');
+}
+
+function enterBuild(secs, text) {
+  G.phase = 'build'; G.buildT = secs; document.body.classList.remove('split');
+  $('stats').classList.remove('hidden'); $('defHud').classList.remove('hidden');
+  floater.g.visible = floater.shadow.visible = true; A.s = 0.5; A.lat = 0; A.jumpZ = 0; A.layers = 2 + 2 * A.stats.health; placeFloater(0);
+  renderStats(); refreshHotbar(); flash(text, 2);
+}
+
+function startCountdown() {
+  if (G.phase !== 'build') return;
+  if (placing) setPlacing(placing); selectTower(null); clearPreview(); rangeLoop.visible = false;
+  launchSetup();
+  G.phase = 'countdown'; G.countT = 3; document.body.classList.add('split');
+  // snap the chase camera behind the balloon
+  G.path.sample(A.s, F); TP.yaw = Math.atan2(F.tan.x, F.tan.z); TP.pitch = 0.36; TP.manualT = 0; snapCams = true;
+}
+
+function launchSetup() {
   const s = A.stats;
   A.maxLayers = A.layers = 2 + 2 * s.health; A.speed = 4.5 + 0.9 * s.speed;
   A.regen = s.regrow ? Math.max(1.5, 10 - 1.1 * s.regrow) : Infinity;
   A.jumpV = 5.5 + 1.1 * s.jump; A.camoMul = 1 - 0.07 * s.camo;
-  Object.assign(A, { s: 0.5, lat: 0, jumpZ: 0, vy: 0, regenT: 0, sinceHit: 0, invuln: 1.0, dashT: 0, dashCD: 0, freezeT: 0, slowMul: 1 });
-  A.vel.set(0, 0, 0);
-  if (G.phase === 'setup') flash('GO!', 1);
-  G.phase = 'run'; $('stats').classList.add('hidden'); $('readyBtn').classList.add('hidden');
-  floater.g.visible = floater.shadow.visible = true;
-  placeFloater(0);
+  Object.assign(A, { s: 0.5, lat: 0, jumpZ: 0, vy: 0, regenT: 0, sinceHit: 0, invuln: 0, dashT: 0, dashCD: 0, freezeT: 0, slowMul: 1 });
+  A.vel.set(0, 0, 0); A.face = 0;
+  floater.g.visible = floater.shadow.visible = true; placeFloater(0);
 }
 
+function beginRun() { G.phase = 'run'; G.runT = 0; A.invuln = 0.8; flash('GO!', 0.8); }
+
 function endRun(text) {
-  G.runs++; A.pool++;
   floater.g.visible = floater.shadow.visible = false;
-  G.phase = 'respawn'; G.respawnT = 6;
-  flash(text, 1.8); renderStats(); $('stats').classList.remove('hidden');
+  for (const p of G.proj) { world.remove(p.m); if (p.mark) world.remove(p.mark); } G.proj = [];
+  if (G.round >= G.maxRounds) { flash(text, 1.5); return endMatch('defender'); }
+  G.round++; A.pool++;
+  const pay = 200 + 20 * G.round; G.money += pay;
+  G.phase = 'between'; G.countT = 1.8; flash(text, 1.8);
+  G.nextText = `ROUND ${G.round}: BUILD  (+$${pay})`;
 }
 
 function hitAttacker(dmg) {
   if (G.phase !== 'run' || A.invuln > 0) return false;
   const old = A.layers, d = Math.min(dmg, A.layers);
   A.layers -= dmg; A.invuln = 0.4; A.sinceHit = 0; A.regenT = 0;
-  G.money += 12 * d;
+  G.money += 12 * d; G.layersPopped += d;
   burst(A.pos, LAYER_COLORS[(old - 1) % LAYER_COLORS.length], 8 + 3 * d); sfx('pop');
   if (A.layers <= 0) { G.money += 50; G.popped++; burst(A.pos, 0xffffff, 24, 8); endRun('POPPED!'); }
   return true;
@@ -608,14 +732,15 @@ function scored() {
 }
 
 function endMatch(who) {
-  G.phase = 'over'; floater.g.visible = floater.shadow.visible = false; flash('');
-  if (placing) setPlacing(placing); selectTower(null);
+  G.phase = 'over'; document.body.classList.remove('split');
+  floater.g.visible = floater.shadow.visible = false;
+  if (placing) setPlacing(placing); selectTower(null); clearPreview();
   $('stats').classList.add('hidden');
   $('overTitle').textContent = who === 'balloon' ? 'BALLOON WINS' : 'DEFENDER WINS';
   $('overTitle').style.color = who === 'balloon' ? 'var(--accent)' : 'var(--def)';
   $('overText').textContent = who === 'balloon'
-    ? `The gate fell with ${fmtTime(G.time)} left on the clock. ${G.gateHits} gate hits, ${G.popped} pops.`
-    : `The gate held on ${G.gate}/${G.gateMax} HP. The balloon got popped ${G.popped} times in ${G.runs} runs.`;
+    ? `The gate fell in round ${G.round}. ${G.gateHits} gate hits, ${G.popped} pops.`
+    : `The gate held all ${G.maxRounds} rounds with ${G.gate}/${G.gateMax} HP left. The balloon got popped ${G.popped} times.`;
   $('over').classList.remove('hidden');
 }
 const fmtTime = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -631,13 +756,16 @@ function placeFloater(dt) {
   floater.g.position.copy(A.pos);
   floater.shadow.position.set(x, gy + 0.03, z);
   const sh = 1 / (1 + A.jumpZ * 0.35); floater.shadow.scale.setScalar(sh); floater.shadow.material.opacity = 0.28 * sh;
+  floater.g.rotation.y = A.face;
+  const sc = 0.8 + 0.035 * Math.min(Math.max(A.layers, 1), 16); floater.g.scale.setScalar(sc);
+  floater.mat.color.setHex(LAYER_COLORS[(Math.max(1, A.layers) - 1) % LAYER_COLORS.length]);
 }
 
 function updateAttacker(dt) {
   A.invuln = Math.max(0, A.invuln - dt); A.dashCD = Math.max(0, A.dashCD - dt); A.dashT = Math.max(0, A.dashT - dt); A.freezeT = Math.max(0, A.freezeT - dt);
   const ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   const iy = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-  camera.getWorldDirection(_fw); _fw.y = 0; _fw.normalize(); _rt.set(-_fw.z, 0, _fw.x);
+  _fw.set(Math.sin(TP.yaw), 0, Math.cos(TP.yaw)); _rt.set(-_fw.z, 0, _fw.x);
   _mv.set(0, 0, 0).addScaledVector(_fw, iy).addScaledVector(_rt, ix); if (_mv.lengthSq() > 1) _mv.normalize();
   if ((keys.ShiftLeft || keys.ShiftRight) && A.dashCD <= 0 && _mv.lengthSq() > 0.01 && A.freezeT <= 0) { A.dashT = 0.22; A.dashCD = 2.8; sfx('shoot'); }
   const spd = A.freezeT > 0 ? 0 : A.speed * A.slowMul * (A.dashT > 0 ? 2.8 : 1);
@@ -646,18 +774,14 @@ function updateAttacker(dt) {
   A.lat = clamp(A.lat + _mv.dot(F.side) * spd * dt, -LANE, LANE);
   if (_mv.lengthSq() > 0.01 && spd > 0) { const want = Math.atan2(_mv.x, _mv.z); let d = want - A.face; d = Math.atan2(Math.sin(d), Math.cos(d)); A.face += d * Math.min(1, dt * 10); }
 
-  if (keys.Space && !A.jumpHeld && A.jumpZ <= 0.001 && A.freezeT <= 0) { A.vy = A.jumpV; }
+  if (keys.Space && !A.jumpHeld && A.jumpZ <= 0.001 && A.freezeT <= 0) A.vy = A.jumpV;
   A.jumpHeld = !!keys.Space;
   A.vy -= 20 * dt; A.jumpZ += A.vy * dt; if (A.jumpZ <= 0) { A.jumpZ = 0; A.vy = 0; }
 
-  // regrow
   A.sinceHit += dt;
   if (A.layers < A.maxLayers && A.sinceHit > 1.5 && isFinite(A.regen)) { A.regenT += dt; if (A.regenT >= A.regen) { A.regenT = 0; A.layers++; burst(A.pos, 0x7cff8a, 6, 3); } }
 
   placeFloater(dt);
-  floater.g.rotation.y = A.face;
-  const sc = 0.8 + 0.035 * Math.min(A.layers, 16); floater.g.scale.setScalar(sc);
-  floater.mat.color.setHex(LAYER_COLORS[(Math.max(1, A.layers) - 1) % LAYER_COLORS.length]);
   floater.mat.emissive.setHex(A.freezeT > 0 ? 0x3aa8ff : (A.invuln > 0 && Math.floor(A.invuln * 20) % 2 ? 0x666666 : (A.dashT > 0 ? 0x553300 : 0)));
 
   if (A.s >= G.path.len - 0.6) scored();
@@ -765,36 +889,53 @@ function updateFx(dt) {
   }
 }
 
-// ---------------------------------------------------------------- camera
-const camPos = new THREE.Vector3(0, 62, 54), camLook = new THREE.Vector3(0, 0, 4);
-function updateCamera(dt) {
-  let tp, tl;
-  if (G.chase && G.phase === 'run') {
-    G.path.sample(Math.min(A.s + 4, G.path.len), F); const ahead = F.pos.clone();
-    G.path.sample(A.s, F);
-    tp = A.pos.clone().addScaledVector(F.tan, -9).add(new THREE.Vector3(0, 6.5, 0));
-    tl = ahead.setY(ahead.y + 1);
-  } else {
-    tp = new THREE.Vector3(0, 62, 54); tl = new THREE.Vector3(0, 0, 4);
-    if (G.phase === 'run') { tp.x += A.pos.x * 0.15; tl.x += A.pos.x * 0.15; tl.z += A.pos.z * 0.1; tp.z += A.pos.z * 0.1; }
+
+// ---------------------------------------------------------------- cameras
+let snapCams = false;
+const _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), specPos = new THREE.Vector3(), specLook = new THREE.Vector3(), tpLook = new THREE.Vector3();
+function updateCameras(dt) {
+  // build / overview camera
+  camera.position.set(0, 62, 54); camera.lookAt(0, 0, 4);
+
+  if (!isSplit()) return;
+  // third-person chase camera: drifts back behind the direction of travel unless the player is steering it
+  TP.manualT = Math.max(0, TP.manualT - dt);
+  const turn = (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0);
+  if (turn) { TP.yaw -= turn * 2.4 * dt; TP.manualT = 1.8; }
+  if (TP.manualT <= 0 && G.phase === 'run') {
+    G.path.sample(Math.min(A.s + 3, G.path.len), F);
+    const want = Math.atan2(F.tan.x, F.tan.z); let d = want - TP.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    TP.yaw += d * Math.min(1, dt * 2.2);
   }
-  const k = 1 - Math.exp(-dt * 4);
-  camPos.lerp(tp, k); camLook.lerp(tl, k);
-  camera.position.copy(camPos); camera.lookAt(camLook);
+  const target = _t1.copy(A.pos).setY(A.pos.y + 0.7);
+  const cp = Math.cos(TP.pitch), want = _t2.set(target.x - Math.sin(TP.yaw) * cp * TP.dist, target.y + Math.sin(TP.pitch) * TP.dist, target.z - Math.cos(TP.yaw) * cp * TP.dist);
+  want.y = Math.max(want.y, G.h(want.x, want.z) + 0.9);
+  const k = snapCams ? 1 : 1 - Math.exp(-dt * 10);
+  TP.pos.lerp(want, k); tpLook.lerp(target, snapCams ? 1 : 1 - Math.exp(-dt * 14));
+  tpCam.position.copy(TP.pos); tpCam.lookAt(tpLook);
+
+  // defender spectator: from above, following the balloon
+  const sp = _t2.set(A.pos.x, A.pos.y + TP.specZoom, A.pos.z + TP.specZoom * 0.45);
+  const ks = snapCams ? 1 : 1 - Math.exp(-dt * 4);
+  specPos.lerp(sp, ks); specLook.lerp(A.pos, ks);
+  specCam.position.copy(specPos); specCam.lookAt(specLook);
+  snapCams = false;
 }
 
 // ---------------------------------------------------------------- HUD
 function updateHud() {
-  $('timer').textContent = G.phase === 'setup' ? `${Math.ceil(G.setupT)}s` : fmtTime(G.time);
-  $('phaseLbl').textContent = { setup: 'Build phase', run: 'Balloon running', respawn: 'Respawning' }[G.phase] || '';
-  $('gateBar').style.width = (G.gate / G.gateMax * 100) + '%';
+  $('roundLbl').textContent = `Round ${G.round}/${G.maxRounds}`;
+  $('timer').textContent = G.phase === 'build' ? `${Math.ceil(G.buildT)}s` : G.phase === 'countdown' ? `${Math.ceil(G.countT)}` : G.phase === 'run' ? fmtTime(G.runLimit - G.runT) : '';
+  $('phaseLbl').textContent = { build: 'Defender building', countdown: 'Get ready…', run: 'Balloon running', between: '' }[G.phase] || '';
+  $('gateBar').style.width = (G.gate / G.gateMax * 100) + '%'; $('gateNum').textContent = `${G.gate}/${G.gateMax}`;
   $('money').textContent = '$' + Math.floor(G.money);
-  $('aLayers').textContent = G.phase === 'run' ? `${A.layers} / ${A.maxLayers}` : '-';
-  $('aProg').textContent = G.phase === 'run' ? Math.floor(A.s / G.path.len * 100) + '%' : '-';
+  $('specMoney').textContent = '$' + Math.floor(G.money); $('specPops').textContent = G.layersPopped;
+  const running = G.phase === 'run' || G.phase === 'countdown';
+  $('aLayers').textContent = running ? `${A.layers} / ${A.maxLayers}` : `${2 + 2 * A.stats.health} (next run)`;
+  $('aProg').textContent = running ? Math.floor(A.s / G.path.len * 100) + '%' : '-';
   $('aDash').textContent = A.dashCD > 0 ? A.dashCD.toFixed(1) + 's' : 'ready';
-  $('aRuns').textContent = `${G.runs} / ${G.gateHits}`;
-  if (G.phase === 'setup') $('statHint').textContent = `W/S pick · A/D change. You launch automatically in ${Math.ceil(G.setupT)}s.`;
-  if (G.phase === 'respawn') $('statHint').textContent = `+1 point! W/S pick · A/D change · ${G.respawnT < 4 ? 'Space to launch now · ' : ''}auto launch in ${Math.ceil(G.respawnT)}s`;
+  $('aRuns').textContent = `${G.round - 1} / ${G.gateHits}`;
+  if (G.phase === 'build') $('statHint').textContent = `W/S pick · A/D change. The run starts when the defender is done or in ${Math.ceil(G.buildT)}s.`;
   refreshHotbar();
   if (selected) $('upBtn').disabled = selected.level > 0 || G.money < TOWERS[selected.type].up;
   if (G.gateDoor) G.gateDoor.opacity = 0.25 + 0.15 * Math.sin(performance.now() / 300);
@@ -802,25 +943,42 @@ function updateHud() {
 
 // ---------------------------------------------------------------- main loop
 let last = performance.now(), hudT = 0;
+function renderView(cam, x, w, h) {
+  cam.aspect = w / h; cam.updateProjectionMatrix();
+  renderer.setViewport(x, 0, w, h); renderer.setScissor(x, 0, w, h);
+  renderer.render(scene, cam);
+}
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (msgTimer > 0) { msgTimer -= dt; if (msgTimer <= 0) $('centerMsg').style.opacity = 0; }
   if (G.phase !== 'menu' && G.phase !== 'over' && !G.paused) {
-    if (G.phase === 'setup') { G.setupT -= dt; if (G.setupT <= 0) launch(); }
-    else {
-      G.time -= dt; G.money += G.income * dt;
-      if (G.time <= 0) { G.time = 0; endMatch('defender'); }
-    }
-    if (G.phase === 'respawn') { G.respawnT -= dt; if (G.respawnT <= 0) launch(); }
-    if (G.phase !== 'over') {
+    if (G.phase === 'build') { G.buildT -= dt; updatePreview(dt); if (G.buildT <= 0) startCountdown(); }
+    else if (G.phase === 'countdown') { const before = Math.ceil(G.countT); G.countT -= dt; if (Math.ceil(G.countT) !== before && G.countT > 0) flash(String(Math.ceil(G.countT)), 0.9); if (G.countT <= 0) beginRun(); }
+    else if (G.phase === 'between') { G.countT -= dt; updateProjectiles(dt); updateFx(dt); if (G.countT <= 0) enterBuild(30, G.nextText); }
+    if (G.phase === 'run') {
+      G.runT += dt;
       updateTowers(dt);
       if (G.phase === 'run') updateAttacker(dt);
       updateProjectiles(dt); updateFx(dt);
+      if (G.phase === 'run' && G.runT >= G.runLimit) { A.layers = 0; burst(A.pos, 0xffffff, 20, 6); G.popped++; endRun('OUT OF TIME!'); }
     }
   }
-  if (G.phase !== 'menu') { updateGhost(); updateCamera(dt); hudT -= dt; if (hudT <= 0 && G.phase !== 'over') { hudT = 0.1; updateHud(); } }
-  else { const a = now / 9000; camera.position.set(Math.sin(a) * 70, 48, Math.cos(a) * 70); camera.lookAt(0, 0, 0); }
-  renderer.render(scene, camera);
+  const w = innerWidth, h = innerHeight;
+  if (G.phase !== 'menu') {
+    updateGhost(); updateCameras(dt);
+    hudT -= dt; if (hudT <= 0 && G.phase !== 'over') { hudT = 0.1; updateHud(); }
+  } else { const a = now / 9000; camera.position.set(Math.sin(a) * 70, 48, Math.cos(a) * 70); camera.lookAt(0, 0, 0); }
+
+  if (isSplit()) {
+    renderer.setScissorTest(true);
+    const lw = Math.floor(w * 0.62);
+    renderView(tpCam, 0, lw, h);
+    renderView(specCam, lw, w - lw, h);
+    renderer.setScissorTest(false);
+  } else {
+    renderer.setScissorTest(false);
+    renderView(camera, 0, w, h);
+  }
   requestAnimationFrame(tick);
 }
 
@@ -834,7 +992,7 @@ $('startBtn').onclick = () => startMatch(menuSel);
 $('againBtn').onclick = () => startMatch(G.mapIdx);
 $('menuBtn').onclick = () => { $('over').classList.add('hidden'); for (const id of ['topbar', 'attHud', 'defHud', 'help', 'stats']) $(id).classList.add('hidden'); G.phase = 'menu'; $('menu').classList.remove('hidden'); renderMenu(); };
 renderMenu(); buildMap(MAPS[0]);
-window.__floatline = { G, A, MAPS, startMatch, placeTower, launch };
+window.__floatline = { G, A, TP, PV, MAPS, startMatch, placeTower, startCountdown, setPlacing };
 requestAnimationFrame(tick);
 </script>
 </body>
