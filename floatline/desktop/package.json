@@ -1,0 +1,23 @@
+{
+  "name": "floatline",
+  "productName": "Floatline",
+  "version": "1.0.0",
+  "description": "1v1 3D balloon-vs-defender tower defense",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "node prepare.js && electron-builder --win portable --x64"
+  },
+  "build": {
+    "appId": "com.floatline.game",
+    "files": ["main.js", "app/**"],
+    "win": { "target": "portable", "signAndEditExecutable": false },
+    "portable": { "artifactName": "Floatline.exe" },
+    "directories": { "output": "dist" }
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "24.13.3",
+    "three": "0.160.0"
+  }
+}

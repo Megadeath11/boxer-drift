@@ -6,3 +6,7 @@ A 1v1 asymmetric tower-defense game in 3D. It's a single HTML file, so there's n
 - **Defender (mouse):** build Dart Posts, Tack Rings, Spike Piles (placed on the track), Mortars and Frost Spires. Click a tower to upgrade or sell it. Survive the 4-minute clock to win.
 
 Maps: Clover Meadow, Ridgeback Canyon, Lantern Lake. Press C for the chase camera and P to pause.
+
+## Windows .exe
+
+`desktop/` packages the game with Electron. Running `npm install && npm run dist` there produces `desktop/dist/Floatline.exe`, a portable exe that runs offline because three.js is bundled. F11 toggles fullscreen.
