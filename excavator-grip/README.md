@@ -9,6 +9,8 @@ a wire channel. All dimensions can be changed in `pilot_grip.scad`.
 | `pilot_grip.scad` | Parametric source (open in [OpenSCAD](https://openscad.org), use the Customizer panel) |
 | `pilot_grip.stl` | Default: 19 mm smooth shaft, 2 set screws, 16 mm button hole |
 | `pilot_grip_no_button.stl` | Same, no button. Wires exit at the back |
+| `pilot_grip_threaded_M14.stl` | **Most likely fit for 1–1.5 t Chinese minis:** M14 threaded lever, M14 nut (22 mm AF) pressed into the base |
+| `fit_test_M14.stl` | Bottom 22 mm of the M14 grip. Print it first (~30 min) to check the fit |
 | `pilot_grip_threaded_M12.stl` | For an M12 threaded lever end, with an M12 nut pressed into the base |
 
 ## Before printing: measure your lever
