@@ -422,6 +422,9 @@ export class Excavator extends Machine {
       }
       E += c;
     }
+    // a full bucket can't take more: soil packs ahead of it and resistance climbs steeply
+    const full = this.load / (this.capacity * 1.08);
+    if (full > 0.9) E *= 1 + (full - 0.9) * 40;
     return { E, info, n };
   }
 
