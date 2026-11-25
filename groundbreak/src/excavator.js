@@ -425,6 +425,8 @@ export class Excavator extends Machine {
     // a full bucket can't take more: soil packs ahead of it and resistance climbs steeply
     const full = this.load / (this.capacity * 1.08);
     if (full > 0.9) E *= 1 + (full - 0.9) * 40;
+    // shoving soil with the back/side of the bucket is far harder than scooping it
+    if (this._scoopHint === false) E *= 3;
     return { E, info, n };
   }
 
@@ -502,6 +504,11 @@ export class Excavator extends Machine {
     const Fmax = 165e3;
     // overlap that already exists at the current pose (caused by the machine body
     // moving, not the hydraulics) is resisted by the bucket contacts, not charged here
+    {
+      const ti = this.bucketWorld(p1, this._tmpBuf).tip.sub(before.tip);
+      const L = ti.length();
+      this._scoopHint = L < 1e-4 || this.w.r3 < -0.08 || ti.dot(before.mouth) / L + 0.6 * ti.dot(before.along) / L > 0.05;
+    }
     const r0 = this.cost(p0);
     const E0 = Math.max(0, r0.E);
     const ok = (res, pose) => {
@@ -538,6 +545,8 @@ export class Excavator extends Machine {
     this._rockPen = this._rockPen || new Map();
     this._rockPen.clear();
     const center = after.tip.clone().add(after.back).multiplyScalar(0.5);
+    // a bucket that isn't moving doesn't cut: soil that slumps against it just rests there
+    const still = moveLen < 0.003;
     for (const [k, [lo, hi]] of after.env) {
       const H = T.bank[k] + T.loose[k];
       const pen = T.rock[k] - lo;
@@ -545,6 +554,7 @@ export class Excavator extends Machine {
       let cut = Math.min(H - lo, hi - lo + 0.25);
       if (cut <= 0.002) continue;
       touching++;
+      if (still) continue;
       const c = T.cutCost(k, cut);
       if (c > 0) energy += c;
       const vol = T.take(k, cut);
@@ -552,11 +562,13 @@ export class Excavator extends Machine {
       const type = T.lastType;
       if (vol <= 0) continue;
       cutVol += vol;
+      this.st = this.st || { cut: 0, into: 0, pushed: 0, steps: 0 }; this.st.cut += vol;
       const room = this.capacity * 1.08 - this.load;
       if (scoop && room > 0) {
         const into = Math.min(room, vol);
         this.loadType = (this.loadType * this.load + type * into) / (this.load + into);
         this.load += into;
+        this.st.into += into;
         const rest = vol - into;
         if (rest > 0) this.pushAside(k, rest, type, moveDir, center);
       } else {
@@ -621,8 +633,9 @@ export class Excavator extends Machine {
     dx /= L; dz /= L;
     const hx = dir.x, hz = dir.z;
     const hl = Math.hypot(hx, hz);
-    let ox = dx * 0.4, oz = dz * 0.4;
-    if (hl > 0.2) { ox += (hx / hl) * 0.7; oz += (hz / hl) * 0.7; }
+    // shoved soil ends up clear of the bucket, mostly ahead of its motion
+    let ox = dx * 0.9, oz = dz * 0.9;
+    if (hl > 0.2) { ox = dx * 0.3 + (hx / hl) * 1.1; oz = dz * 0.3 + (hz / hl) * 1.1; }
     T.deposit(x + ox, z + oz, vol, type);
   }
 
