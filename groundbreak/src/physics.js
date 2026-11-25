@@ -187,9 +187,11 @@ function pointsVsBoxes(P, Q) {
       Q.body.pointVel(wp, _vq);
       _dv.subVectors(_vp, _vq);
       const vn = _dv.dot(_nW);
-      const k = 3e6, c = 1.2e5;
-      let F = k * Math.min(pen, 0.2) - c * vn;
+      // stiff but bounded: steel-on-steel contact that can shove a machine without launching it
+      const k = 1.2e6, c = 4e4;
+      let F = k * Math.min(pen, 0.15) - c * vn;
       if (F < 0) F = 0;
+      if (F > 1.2e5) F = 1.2e5;
       // tangential damping (friction-ish)
       _dv.addScaledVector(_nW, -vn);
       const ft = Math.min(F * 0.5, _dv.length() * 4e4);
