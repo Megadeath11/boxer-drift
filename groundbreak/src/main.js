@@ -213,7 +213,9 @@ async function init() {
     const tgt = tmpV.copy(am.body.pos);
     tgt.y += am.kind === 'truck' ? 1.6 : 1.4;
     cam.target.lerp(tgt, 1 - Math.exp(-dt * 8));
-    if (camMode === 'orbit') {
+    if (camMode === 'free') {
+      // positioned externally (screenshot / photo hook)
+    } else if (camMode === 'orbit') {
       // ease behind a moving machine when the user isn't steering the camera
       const idle = now / 1000 - cam.lastDrag > 4;
       const sp = am.body.vel.length();
@@ -282,7 +284,8 @@ async function init() {
       if (s % 4 === 3) { terrain.relax(1); particles.update(1 / 60); for (const m of machines) { m.updateVisuals(1 / 60); m.refreshCollisionLocal(); } }
     }
   }
-  window.__gb = { simulate, simTime: () => 0, terrain, machines, camera, scene, renderer, select, SOIL, cam, setCamMode: (m) => { camMode = m; }, help };
+  window.__gb = { simulate, simTime: () => 0, terrain, machines, camera, scene, renderer, select, SOIL, cam, setCamMode: (m) => { camMode = m; },
+    photo: (px, py, pz, lx, ly, lz, fov = 55) => { camMode = 'free'; camera.position.set(px, py, pz); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); }, help };
   requestAnimationFrame(tick);
 }
 
