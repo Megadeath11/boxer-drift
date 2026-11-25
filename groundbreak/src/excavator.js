@@ -537,7 +537,9 @@ export class Excavator extends Machine {
     // apply the cut
     const moveDir = after.tip.clone().sub(before.tip);
     const moveLen = moveDir.length();
-    const intended = this.bucketWorld(p1, this._tmpBuf).tip.sub(before.tip);
+    // stall reaction comes from the boom/stick/bucket cylinders; a blocked swing only
+    // pushes with swing-motor torque (~10 kN at the bucket), so leave swing out of it
+    const intended = this.bucketWorld({ ...p1, swing: p0.swing }, this._tmpBuf).tip.sub(before.tip);
     if (moveLen > 1e-5) moveDir.divideScalar(moveLen);
     const curling = this.w.r3 < -0.08;
     const scoop = moveDir.dot(after.mouth) + 0.6 * moveDir.dot(after.along) > 0.05 || curling;
