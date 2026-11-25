@@ -103,6 +103,8 @@ async function init() {
     help.style.display = showHelp ? 'block' : 'none';
   }
   select(0);
+  // desktop build: audio is allowed without a click
+  if (navigator.userAgent.includes('Electron')) { sound.start(); hideClickHint(); }
 
   // ---- job progress ----
   const jobState = { pitPct: 0, pitVol: 0, over: 0, floorPct: 0, padPct: 0, padVol: 0, hauled: 0 };

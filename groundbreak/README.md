@@ -4,7 +4,23 @@ A realistic digging & construction sim running in the browser (Three.js / WebGL,
 no build step). Operate a 20 t hydraulic excavator, a tandem dump truck and a
 medium dozer on a deformable job site with a physically based soil model.
 
-## Run
+## Run as a desktop game
+
+**Windows:** download `Groundbreak-win64.zip`, unzip it anywhere, and double-click
+`Groundbreak.exe`. **F11** or **Alt+Enter** toggles fullscreen, **Esc** leaves fullscreen.
+
+To run from source, or to build the desktop app yourself (Node.js 18+):
+
+```bash
+cd groundbreak
+npm install
+npm start                 # play in a desktop window
+npm run package:win       # -> dist/Groundbreak-win32-x64/Groundbreak.exe
+npm run package:mac       # macOS (run on a Mac)
+npm run package:linux
+```
+
+## Run in a browser instead
 
 ```bash
 cd groundbreak
