@@ -56,6 +56,19 @@ export class Machine {
     return c;
   }
 
+  /** Safety net: if the physics state ever becomes non-finite, put the machine back on its feet. */
+  guard() {
+    const b = this.body;
+    const ok = [b.pos.x, b.pos.y, b.pos.z, b.quat.x, b.quat.w, b.vel.x, b.vel.y, b.angVel.x, b.angVel.y].every(Number.isFinite);
+    if (ok) { this._lastGood = this._lastGood || { p: new THREE.Vector3(), q: new THREE.Quaternion() }; this._lastGood.p.copy(b.pos); this._lastGood.q.copy(b.quat); return; }
+    const g = this._lastGood;
+    b.pos.copy(g ? g.p : new THREE.Vector3()); b.quat.copy(g ? g.q : new THREE.Quaternion());
+    b.vel.set(0, 0, 0); b.angVel.set(0, 0, 0); b.force.set(0, 0, 0); b.torque.set(0, 0, 0);
+    for (const c of this.contacts) { c.zl = c.zt = 0; }
+    if (this.onReset) this.onReset();
+    console.warn(this.label + ': physics state reset');
+  }
+
   syncRoot() {
     this.root.position.copy(this.body.pos);
     this.root.quaternion.copy(this.body.quat);

@@ -73,6 +73,12 @@ export class Excavator extends Machine {
 
   get capacity() { return S.bucketCapacity; }
 
+  onReset() {
+    for (const k of ['swing', 'a1', 'r2', 'r3']) if (!Number.isFinite(this[k])) this[k] = { swing: 0, a1: 0.5, r2: -2.0, r3: -1.8 }[k];
+    for (const k in this.w) this.w[k] = 0;
+    this.reaction.set(0, 0, 0);
+  }
+
   // ---------------------------------------------------------------- model
   build() {
     const m = materials();
@@ -450,11 +456,12 @@ export class Excavator extends Machine {
   hydStep(dt, inp) {
     const T = this.terrain;
     // joystick -> commanded joint velocities with flow sharing between functions
+    const ax = (v) => (Number.isFinite(v) ? clamp(v, -1, 1) : 0); // ignore bad/NaN input
     const cmd = {
-      swing: clamp(inp.swing || 0, -1, 1) * RATE.swing,
-      a1: clamp(inp.boom || 0, -1, 1) * RATE.a1,
-      r2: clamp(inp.stick || 0, -1, 1) * RATE.r2,
-      r3: clamp(inp.bucket || 0, -1, 1) * RATE.r3,
+      swing: ax(inp.swing) * RATE.swing,
+      a1: ax(inp.boom) * RATE.a1,
+      r2: ax(inp.stick) * RATE.r2,
+      r3: ax(inp.bucket) * RATE.r3,
     };
     const rpmF = clamp((this.rpm - 700) / (this.maxRpm - 700), 0.2, 1);
     let flow = 0;

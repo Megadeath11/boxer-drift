@@ -197,7 +197,7 @@ async function init() {
       let steps = 0;
       while (acc >= DT && steps < 30) {
         for (let i = 0; i < machines.length; i++) for (let j = i + 1; j < machines.length; j++) collideMachines(machines[i], machines[j]);
-        for (const m of machines) { bound(m); m.step(DT); }
+        for (const m of machines) { bound(m); m.step(DT); m.guard(); }
         acc -= DT; steps++;
         // consume one-shot toggles after first substep
         for (const m of machines) if (m.inp) { m.inp.toggleSpeed = false; m.inp.park = false; }
@@ -278,7 +278,7 @@ async function init() {
     for (let s = 0; s < n; s++) {
       if (s % 4 === 0) for (const m of machines) m.control(inpFor ? (inpFor(m, s / 240) || {}) : {}, 1 / 60);
       for (let i = 0; i < machines.length; i++) for (let j = i + 1; j < machines.length; j++) collideMachines(machines[i], machines[j]);
-      for (const m of machines) { bound(m); m.step(DT); }
+      for (const m of machines) { bound(m); m.step(DT); m.guard(); }
       if (s % 4 === 3) { terrain.relax(1); particles.update(1 / 60); for (const m of machines) { m.updateVisuals(1 / 60); m.refreshCollisionLocal(); } }
     }
   }
