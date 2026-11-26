@@ -419,9 +419,16 @@ export class Terrain {
         const d = this.orig[k] - b[k];
         if (bt === SOIL.CLAY || bt === SOIL.TOPSOIL) btc = smoothstep(SOIL.topsoilDepth - 0.12, SOIL.topsoilDepth + 0.1, d);
         else if (bt === SOIL.GRAVEL) btc = 1 + smoothstep(SOIL.gravelBand, SOIL.gravelBand * 0.5, b[k] - this.rock[k]);
-        soil[k * 4] = lf;
+        // 3x3-blurred coverage / disturbance so spoil and worn-grass outlines aren't grid-shaped
+        let ds = 0, ls = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+          const q = Math.min(W * W - 1, Math.max(0, k + dj * W + di));
+          ds += this.dist[q]; ls += l[q];
+        }
+        const lfb = clamp(ls / 9 / 0.12, 0, 1);
+        soil[k * 4] = Math.max(lf * 0.6, lfb);
         soil[k * 4 + 1] = lf > 0.5 ? this.ltype[k] : btc * (1 - lf) + this.ltype[k] * lf;
-        soil[k * 4 + 2] = this.dist[k];
+        soil[k * 4 + 2] = Math.max(this.dist[k] * 0.5, ds / 9);
         soil[k * 4 + 3] = d;
         soil2[k * 4] = this.mdx[k]; soil2[k * 4 + 1] = this.mdz[k];
         soil2[k * 4 + 2] = this.mtype[k]; soil2[k * 4 + 3] = this.mtype[k] ? this.mstr[k] : 0;
@@ -489,7 +496,7 @@ export function makeSoilMaterial(detailTex) {
         vec4 d2 = tri(vWPos, bw, 0.11);
         vec4 d3 = tri(vWPos, bw, 1.9);
         vec4 d4 = tri(vWPos, bw, 4.3);
-        float loose = vSoil.x; float st = vSoil.y; float dist = vSoil.z; float cutd = vSoil.w;
+        float loose = clamp(vSoil.x * 1.5 + (d1.b - 0.5) * 0.6 + (d3.g - 0.5) * 0.6 - 0.1, 0.0, 1.0); float st = vSoil.y; float dist = vSoil.z; float cutd = vSoil.w;
         // real soil albedos are low (0.08-0.3): dark humus topsoil, orange-brown clay,
         // grey-brown gravelly till, grey bedrock
         vec3 cTop = vec3(0.10, 0.062, 0.036);
@@ -568,7 +575,7 @@ export function makeSoilMaterial(detailTex) {
         vec3 grass = mix(grassA, grassB, smoothstep(0.2, 0.8, macro + (d2.b - 0.5) * 0.4));
         grass = mix(grass, dry, smoothstep(0.62, 0.9, m2.r * 0.6 + d2.r * 0.5) * 0.55);
         grass *= 0.6 + 0.55 * d3.r + 0.25 * (d1.g - 0.3);
-        float grassAmt = (1.0 - smoothstep(0.15, 0.85, dist)) * smoothstep(0.55, 0.8, wn.y);
+        float grassAmt = (1.0 - smoothstep(0.15, 0.85, dist + (d2.r - 0.5) * 0.8 + (d1.b - 0.5) * 0.6 + (d3.g - 0.5) * 0.7)) * smoothstep(0.55, 0.8, wn.y);
         grassAmt *= smoothstep(0.1, 0.35, d2.r + d1.b * 0.4 + 0.2 + m1.r * 0.2);
         vec3 col = mix(soilc, grass, grassAmt);
         float grassAmt0 = 1.0 - grassAmt;
