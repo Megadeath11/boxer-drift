@@ -149,7 +149,8 @@ export function resolveContact(body, c, terrain, dt, mode, worldPointOverride) {
   _F.copy(_n).multiplyScalar(Fn).addScaledVector(_f, Fl).addScaledVector(_l, Ft);
   body.addForceAt(_F, p);
   // soil response: compaction, ruts, grass damage
-  terrain.compact(p.x, p.z, Fn / c.area, dt, c.slip);
+  terrain.compact(p.x, p.z, Fn / c.area, dt, c.slip,
+    mode.print ? { dx: _f.x, dz: _f.z, hw: mode.print.hw, type: mode.print.type } : undefined);
   void lim;
   return Fn;
 }

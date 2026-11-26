@@ -9,8 +9,12 @@ export const SOIL = {
   COMPACT: 0.84,
   // Angle of repose of loose, dry-ish excavated soil: 34-38 degrees
   REPOSE_LOOSE_DEG: 36,
-  // Undisturbed cohesive ground can stand steep (short-term) cut faces
+  // Undisturbed ground stands steeper than loose spoil. Cohesive clay holds a
+  // near-vertical short-term cut (critical height Hc = 4c/gamma ~ 2.5-3 m for
+  // c ~ 12-15 kPa); topsoil and gravelly till crumble back much sooner.
   REPOSE_BANK_DEG: 74,
+  BANK_DEG: [58, 85, 55, 89],     // per material: topsoil, clay, till, rock
+  CRITICAL_HEIGHT: [0.8, 2.8, 1.2, 99], // m of face a single step can hold before it fails
   // Material indices
   TOPSOIL: 0, CLAY: 1, GRAVEL: 2, ROCK: 3,
   names: ['Topsoil', 'Clay', 'Gravelly till', 'Ripped rock'],
@@ -28,7 +32,7 @@ export const SOIL = {
 // Job site layout (metres, world X/Z). The playable deformable grid is 96 m square.
 export const SITE = {
   size: 96,
-  res: 0.25,
+  res: 0.125,
   // Foundation excavation for a small building: 12 m x 9 m x 2.5 m deep
   pit: { x0: 2, z0: 2, x1: 14, z1: 11, depth: 2.5 },
   // Fill pad to be built from the spoil: 14 m x 12 m, +0.5 m above existing grade

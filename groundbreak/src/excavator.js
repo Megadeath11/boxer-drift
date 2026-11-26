@@ -36,14 +36,22 @@ function shellSamples() {
   for (let i = 0; i < SHELL.length - 1; i++) {
     const [u0, w0] = SHELL[i], [u1, w1] = SHELL[i + 1];
     const L = Math.hypot(u1 - u0, w1 - w0);
-    const n = Math.max(1, Math.ceil(L / 0.15));
+    const n = Math.max(1, Math.ceil(L / 0.08));
     for (let k = 0; k < n; k++) pts.push([u0 + (u1 - u0) * k / n, w0 + (w1 - w0) * k / n]);
   }
   pts.push(SHELL[SHELL.length - 1]);
-  // interior fill points so that the whole bucket volume rasterises
-  for (const [u, w] of [[0.4, 0.4], [0.8, 0.45], [1.1, 0.3], [0.7, 0.15], [0.3, 0.2]]) pts.push([u, w]);
+  // interior fill points so that the whole bucket volume rasterises on the 12.5 cm grid
+  const inside = (u, w) => {
+    let c = false;
+    for (let i = 0, j = SHELL.length - 1; i < SHELL.length; j = i++) {
+      const [ui, wi] = SHELL[i], [uj, wj] = SHELL[j];
+      if ((wi > w) !== (wj > w) && u < ((uj - ui) * (w - wi)) / (wj - wi) + ui) c = !c;
+    }
+    return c;
+  };
+  for (let u = 0.0; u <= 1.45; u += 0.11) for (let w = 0.02; w <= 0.9; w += 0.11) if (inside(u, w)) pts.push([u, w]);
   const out = [];
-  for (let x = -0.6; x <= 0.601; x += 0.2) for (const [u, w] of pts) out.push([x, u, w]);
+  for (let x = -0.62; x <= 0.621; x += 0.1) for (const [u, w] of pts) out.push([x, u, w]);
   return out;
 }
 const SAMPLES = shellSamples();
@@ -53,6 +61,7 @@ export class Excavator extends Machine {
     super(scene, terrain, particles, S.operatingMass, new THREE.Vector3(62000, 72000, 30000));
     this.spec = S;
     this.kind = 'excavator';
+    this.trackPrint = { hw: 0.15, type: 3 };
     this.label = S.name;
     this.idleRpm = 950; this.maxRpm = 1800;
     this.radius = 11;
@@ -387,18 +396,26 @@ export class Excavator extends Machine {
 
   /** Build per-node envelope (min/max y) touched by the bucket. */
   envelope(pose) {
-    if (!this._wbuf) { this._wbuf = new Float32Array(SAMPLES.length * 3); this._env = new Map(); }
+    const T = this.terrain;
+    if (!this._wbuf) {
+      this._wbuf = new Float32Array(SAMPLES.length * 3); this._env = new Map();
+      this._eLo = new Float32Array(T.W * T.W); this._eHi = new Float32Array(T.W * T.W);
+      this._eStamp = new Uint32Array(T.W * T.W); this._eList = new Int32Array(SAMPLES.length); this._stamp = 0;
+    }
     const info = this.bucketWorld(pose, this._wbuf);
-    const env = this._env; env.clear();
-    const T = this.terrain, b = this._wbuf;
+    const b = this._wbuf, lo = this._eLo, hi = this._eHi, st = this._eStamp, list = this._eList;
+    const stamp = ++this._stamp;
+    let n = 0;
     for (let i = 0; i < SAMPLES.length; i++) {
       const x = b[i * 3], y = b[i * 3 + 1], z = b[i * 3 + 2];
       const k = T.nearestIdx(x, z);
       if (k < 0) continue;
-      const e = env.get(k);
-      if (!e) env.set(k, [y, y]);
-      else { if (y < e[0]) e[0] = y; if (y > e[1]) e[1] = y; }
+      if (st[k] !== stamp) { st[k] = stamp; lo[k] = y; hi[k] = y; list[n++] = k; }
+      else { if (y < lo[k]) lo[k] = y; if (y > hi[k]) hi[k] = y; }
     }
+    // Map-compatible view used by cost() / cutting: [k, [lo, hi]]
+    const env = this._env; env.clear();
+    for (let i = 0; i < n; i++) { const k = list[i]; env.set(k, [lo[k], hi[k]]); }
     info.env = env;
     return info;
   }
@@ -560,7 +577,15 @@ export class Excavator extends Machine {
       const c = T.cutCost(k, cut);
       if (c > 0) energy += c;
       const vol = T.take(k, cut);
-      if (vol > 0.25) { /* large chunk: the face breaks out */ }
+      // the teeth leave grooves in the bank along the direction of the cut
+      if (scoop && T.loose[k] < 0.01) {
+        // grooves follow the bucket's travel; smoothed so one pass leaves straight parallel marks
+        const hx = Math.abs(moveDir.x) + Math.abs(moveDir.z) > 0.2 ? moveDir : after.along;
+        const sd = this._cutDir || (this._cutDir = new THREE.Vector2(hx.x, hx.z));
+        if (sd.x * hx.x + sd.y * hx.z < 0) sd.multiplyScalar(-1);
+        sd.lerp(new THREE.Vector2(hx.x, hx.z), 0.08);
+        T.mark(k, sd.x, sd.y, 1, 1);
+      }
       const type = T.lastType;
       if (vol <= 0) continue;
       cutVol += vol;
@@ -575,6 +600,25 @@ export class Excavator extends Machine {
         if (rest > 0) this.pushAside(k, rest, type, moveDir, center);
       } else {
         this.pushAside(k, vol, type, moveDir, center);
+      }
+    }
+    // the bucket lip smooths what it passes over: shave nodes left proud of their
+    // neighbours (sampling stair-steps), so cut faces come out as clean planes
+    if (!still && touching) {
+      const W = T.W;
+      for (const [k, [lo]] of after.env) {
+        const H = T.bank[k] + T.loose[k];
+        if (H > lo + 0.3) continue; // not under the bucket
+        const avg = (T.bank[k - 1] + T.loose[k - 1] + T.bank[k + 1] + T.loose[k + 1] + T.bank[k - W] + T.loose[k - W] + T.bank[k + W] + T.loose[k + W]) * 0.25;
+        const ex = H - avg - 0.008;
+        if (ex > 0.002 && T.bank[k] - ex > T.rock[k]) {
+          const v = T.take(k, ex * 0.6);
+          if (v > 0) {
+            const room = this.capacity * 1.08 - this.load;
+            if (scoop && room > 0) { const into = Math.min(room, v); this.loadType = (this.loadType * this.load + T.lastType * into) / (this.load + into); this.load += into; if (v > into) this.pushAside(k, v - into, T.lastType, moveDir, center); }
+            else this.pushAside(k, v, T.lastType, moveDir, center);
+          }
+        }
       }
     }
     this.swing = pose.swing; this.a1 = pose.a1; this.r2 = pose.r2; this.r3 = pose.r3;

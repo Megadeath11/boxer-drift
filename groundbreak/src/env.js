@@ -71,6 +71,7 @@ export function setupEnvironment(renderer, scene, detailTex) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('soil', new THREE.BufferAttribute(new Float32Array(n * n * 4), 4));
+  g.setAttribute('soil2', new THREE.BufferAttribute(new Float32Array(n * n * 4), 4));
   g.setIndex(idx);
   g.computeVertexNormals();
   const outer = new THREE.Mesh(g, makeSoilMaterial(detailTex));

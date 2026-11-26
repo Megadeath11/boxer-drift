@@ -23,6 +23,7 @@ export class Dozer extends Machine {
     super(scene, terrain, particles, S.operatingMass, new THREE.Vector3(56000, 56000, 23000));
     this.spec = S;
     this.kind = 'dozer';
+    this.trackPrint = { hw: 0.14, type: 3 };
     this.label = S.name;
     this.idleRpm = 800; this.maxRpm = 1900;
     this.radius = 6;
@@ -215,9 +216,10 @@ export class Dozer extends Machine {
       if (ax > 1.2) zz += (ax - 1.2) * Math.tan(WING);
       return P.set(x, y, zz).applyMatrix4(M);
     };
-    for (let x = -1.6; x <= 1.601; x += 0.2) {
+    const DX = 0.1;
+    for (let x = -1.6; x <= 1.601; x += DX) {
       // cutting strip just behind the edge
-      for (const d of [-0.12, 0.0]) {
+      for (const d of [-0.12, -0.06, 0.0]) {
         local(x, 0, d);
         const k = T.nearestIdx(P.x, P.z);
         if (k < 0 || seen.has(k)) continue;
@@ -226,8 +228,9 @@ export class Dozer extends Machine {
         if (H > P.y + 0.003) {
           const ex = H - P.y;
           const rockTop = T.rock[k];
-          if (rockTop > P.y) { Frock += (rockTop - P.y) * 4e6 * 0.2; }
+          if (rockTop > P.y) { Frock += (rockTop - P.y) * 4e6 * DX; }
           const vol = T.take(k, ex);
+          T.mark(k, fh.x, fh.z, 2, 1);
           if (vol > 0) {
             const tp = T.lastType;
             local(x, 0, 0.45 + Math.random() * 0.2);
@@ -244,13 +247,13 @@ export class Dozer extends Machine {
         const dep = T.bank[ka] - edgeY;
         if (dep > 0) {
           const t = T.bankType(ka, T.bank[ka] - dep * 0.5);
-          Fcut += dep * 0.2 * SOIL.energyBank[t] * 0.5;
+          Fcut += dep * DX * SOIL.energyBank[t] * 0.5;
           cutDepthSum += dep; nCut++;
         }
-        if (T.rock[ka] > edgeY) Frock += (T.rock[ka] - edgeY) * 4e6 * 0.2;
+        if (T.rock[ka] > edgeY) Frock += (T.rock[ka] - edgeY) * 4e6 * DX;
       }
       // the carried pile (loose soil in front of the moldboard)
-      for (let d = 0.25; d <= 1.8; d += 0.25) {
+      for (let d = 0.2; d <= 1.8; d += 0.125) {
         local(x, 0, d);
         const k = T.nearestIdx(P.x, P.z);
         if (k < 0 || pileSeen.has(k)) continue;
@@ -258,7 +261,7 @@ export class Dozer extends Machine {
         const ex = T.bank[k] + T.loose[k] - P.y;
         if (ex > 0) pile += Math.min(T.loose[k], ex) * T.cellA;
         // spill over the top of the blade
-        if (d <= 0.5) {
+        if (d <= 0.45) {
           Q.set(x, 1.45, 0).applyMatrix4(M);
           const over = T.bank[k] + T.loose[k] - Q.y;
           if (over > 0.05) {

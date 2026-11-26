@@ -3,6 +3,7 @@ import { Terrain } from './terrain.js';
 import { makeDetailTexture } from './textures.js';
 import { setupEnvironment } from './env.js';
 import { SoilParticles } from './particles.js';
+import { Clods } from './clods.js';
 import { Excavator } from './excavator.js';
 import { Dozer } from './dozer.js';
 import { Truck } from './truck.js';
@@ -37,6 +38,8 @@ async function init() {
   setStatus('Lighting & environment…'); await frame();
   const env = setupEnvironment(renderer, scene, detail);
   const particles = new SoilParticles(scene, terrain);
+  const clods = new Clods(scene, terrain);
+  const focus = new THREE.Vector3();
 
   setStatus('Assembling machines…'); await frame();
   const ex = new Excavator(scene, terrain, particles);
@@ -240,6 +243,10 @@ async function init() {
       camera.near = 0.05;
     }
     camera.updateProjectionMatrix();
+    // clods are scattered around the point the camera is looking at
+    focus.set(0, 0, -1).applyQuaternion(camera.quaternion).setY(0).normalize().multiplyScalar(camMode === 'cab' ? 9 : 4).add(camera.position);
+    if (camMode === 'orbit') focus.lerp(cam.target, 0.7);
+    clods.update(dt, focus);
     // shadows follow the action
     env.sun.target.position.copy(cam.target);
     env.sun.position.copy(cam.target).add(env.sun.userData.off || (env.sun.userData.off = env.sun.position.clone()));

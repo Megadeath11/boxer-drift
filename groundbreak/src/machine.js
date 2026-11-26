@@ -131,7 +131,7 @@ export class Machine {
     for (const c of this.contacts) {
       const left = c.local.x > 0;
       const belt = left ? bl : br;
-      resolveContact(this.body, c, this.terrain, dt, { belt, muLong: mu, muLat: mu * 0.8, rollRes: 0.015 });
+      resolveContact(this.body, c, this.terrain, dt, { belt, muLong: mu, muLat: mu * 0.8, rollRes: 0.015, print: this.trackPrint });
       if (left) sumL += c.Flong; else sumR += c.Flong;
       if (c.ground) { nGround++; slip += c.slip; }
     }

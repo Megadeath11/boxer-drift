@@ -315,6 +315,7 @@ export class Truck extends Machine {
       const mode = brakeCap > 1
         ? { belt: 0, muLong: mu, muLat: mu * 0.95, longCap: brakeCap, rollRes: rr }
         : { free: true, drive: w.driven && driven ? Fdrive / driven : 0, muLong: mu, muLat: mu * 0.95, rollRes: rr };
+      mode.print = { hw: w.dual ? 0.3 : 0.15, type: 4 };
       tyreFriction(this.body, ct, cp, N, wheelFn, dt, mode, this.terrain);
       slip += ct.slip;
       w.rotV = this.body.pointVel(cp, V).dot(new THREE.Vector3().copy(dir).applyQuaternion(this.body.quat)) / R;
@@ -510,7 +511,7 @@ function tyreFriction(body, c, p, n, Fn, dt, mode, terrain) {
   c.slip = slip;
   _F.copy(_f).multiplyScalar(Fl).addScaledVector(_l, Ft);
   body.addForceAt(_F, p);
-  terrain.compact(p.x, p.z, Fn / c.area * 0.6, dt, slip);
+  terrain.compact(p.x, p.z, Fn / c.area * 0.6, dt, slip, mode.print ? { dx: _f.x, dz: _f.z, hw: mode.print.hw, type: mode.print.type } : undefined);
   c.world.copy(p); c.Fn = Fn; c.ground = true;
 }
 void resolveContact;

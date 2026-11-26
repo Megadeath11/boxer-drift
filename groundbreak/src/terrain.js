@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { fbm, clamp, smoothstep } from './util.js';
 import { SOIL, SITE } from './config.js';
 
-const TILE = 16;
+const TILE = 32;
 
 export function baseHeight(x, z) {
   const r = Math.hypot(x, z);
@@ -40,12 +40,18 @@ export class Terrain {
     this.orig = new Float32Array(n);
     this.ltype = new Float32Array(n);
     this.dist = new Float32Array(n);
+    // surface marks left by tools: direction (unit xz), type, strength
+    // type 1 = bucket teeth, 2 = dozer blade polish, 3 = track grousers, 4 = tyre tread
+    this.mdx = new Float32Array(n); this.mdz = new Float32Array(n);
+    this.mtype = new Uint8Array(n); this.mstr = new Float32Array(n);
     this.TW = Math.ceil(this.W / TILE);
     this.tileActive = new Uint8Array(this.TW * this.TW);
     this.dirtyMin = this.W; this.dirtyMax = -1;
     this.tanL = Math.tan(SOIL.REPOSE_LOOSE_DEG * Math.PI / 180);
     this.tanB = Math.tan(SOIL.REPOSE_BANK_DEG * Math.PI / 180);
+    this.tanBk = SOIL.BANK_DEG.map((d) => Math.tan(d * Math.PI / 180));
     this.stats = { excavatedBank: 0 };
+    this.version = 0;
     this._init();
   }
 
@@ -122,6 +128,7 @@ export class Terrain {
 
   // ---------- modification ----------
   touch(k) {
+    this.version++;
     const j = (k / this.W) | 0, i = k - j * this.W;
     if (j < this.dirtyMin) this.dirtyMin = j;
     if (j > this.dirtyMax) this.dirtyMax = j;
@@ -170,6 +177,20 @@ export class Terrain {
     this.ltype[k] = (this.ltype[k] * l + type * thick) / nl;
     this.loose[k] = nl;
     this.dist[k] = 1;
+    if (thick > 0.015) { this.mstr[k] *= Math.max(0, 1 - thick * 40); if (this.mstr[k] < 0.05) this.mtype[k] = 0; }
+    this.touch(k);
+  }
+
+  /** Leave a tool mark (teeth grooves, blade polish, grouser bars, tyre tread). */
+  mark(k, dx, dz, type, str = 1) {
+    if (k < 0) return;
+    const L = Math.hypot(dx, dz);
+    if (L < 1e-6) return;
+    dx /= L; dz /= L;
+    if (this.mtype[k] === type && this.mstr[k] >= str * 0.95 && Math.abs(this.mdx[k] * dx + this.mdz[k] * dz) > 0.98) return;
+    // keep a consistent sign so neighbouring nodes interpolate cleanly
+    if (dx < 0 || (dx === 0 && dz < 0)) { dx = -dx; dz = -dz; }
+    this.mdx[k] = dx; this.mdz[k] = dz; this.mtype[k] = type; this.mstr[k] = str;
     this.touch(k);
   }
 
@@ -188,10 +209,27 @@ export class Terrain {
     return true;
   }
 
-  /** Machine traffic: compress loose soil, flatten grass. pressure in Pa. */
-  compact(x, z, pressure, dt, slip) {
+  /** Machine traffic: compress loose soil, flatten grass. pressure in Pa.
+   *  footprint (optional): {dx, dz (travel dir), hw (half width m), type} prints the
+   *  grouser / tread pattern across the full shoe or tyre width. */
+  compact(x, z, pressure, dt, slip, footprint) {
+    if (footprint && pressure > 1.5e4) {
+      const { dx, dz, hw, type } = footprint;
+      const lx = -dz, lz = dx;
+      const soft = this.looseAt(x, z) > 0.01 || this.dist[this.nearestIdx(x, z)] > 0.3;
+      for (let o = -hw; o <= hw + 1e-6; o += this.res) {
+        const kk = this.nearestIdx(x + lx * o, z + lz * o);
+        if (kk < 0) continue;
+        if (o !== 0) this._compact1(kk, pressure, dt, slip);
+        if (soft || this.loose[kk] > 0.005) this.mark(kk, dx, dz, slip > 0.6 ? 0 : type, Math.min(1, pressure / 6e4));
+      }
+    }
     const k = this.nearestIdx(x, z);
     if (k < 0) return;
+    this._compact1(k, pressure, dt, slip);
+  }
+
+  _compact1(k, pressure, dt, slip) {
     const l = this.loose[k];
     if (l > 0.002) {
       const rate = clamp(pressure / 9e4, 0, 3) * dt * 1.6;
@@ -243,9 +281,23 @@ export class Terrain {
       moved += m;
       dh -= 2 * m;
     }
-    // bank failure (cut face collapse)
+    // bank failure (cut face collapse): limit depends on the material at the top of
+    // the face; cohesive clay stands near vertical up to its critical height
     const bd = bank[src] - (bank[dst] + loose[dst]);
-    const limB = this.tanB * d;
+    if (bd <= d * 1.2) return moved; // fast path: gentle step
+    const bt = this.bankType(src, bank[src] - Math.min(bd, 0.3) * 0.5);
+    let limB = Math.min(this.tanBk[bt] * d, SOIL.CRITICAL_HEIGHT[bt]);
+    // a tall face (measured down to its toe a few cells out) beyond the critical
+    // height can't stay near vertical: it slumps back towards ~60 degrees
+    if (bd > d * 3) {
+      const toe = src + (dst - src) * 6;
+      if (toe > 0 && toe < bank.length) {
+        const faceH = bank[src] - (bank[toe] + loose[toe]);
+        if (faceH > SOIL.CRITICAL_HEIGHT[bt]) limB = Math.min(limB, 1.7 * d);
+      }
+    }
+    // occasional spalling of near-limit faces makes cut walls crumble naturally
+    if (bd > limB * 0.7 && Math.random() < 0.002) limB = bd * 0.9;
     if (bd > limB) {
       let m = (bd - limB) * 0.06 * (0.6 + Math.random() * 0.8);
       const av = bank[src] - this.rock[src];
@@ -284,6 +336,7 @@ export class Terrain {
           }
         }
         if (moved > 1e-4) {
+          this.version++;
           if (j0 < this.dirtyMin) this.dirtyMin = j0 - 1;
           if (j1 > this.dirtyMax) this.dirtyMax = j1 + 1;
           this.tileActive[t] = 90;
@@ -324,6 +377,7 @@ export class Terrain {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('soil', new THREE.BufferAttribute(soil, 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('soil2', new THREE.BufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage));
     g.setIndex(new THREE.BufferAttribute(idx, 1));
     this.geo = g;
     this.material = makeSoilMaterial(detailTex);
@@ -344,6 +398,7 @@ export class Terrain {
     const pos = this.geo.attributes.position.array;
     const nrm = this.geo.attributes.normal.array;
     const soil = this.geo.attributes.soil.array;
+    const soil2 = this.geo.attributes.soil2.array;
     const b = this.bank, l = this.loose;
     for (let j = j0; j <= j1; j++) {
       for (let i = 0; i < W; i++) {
@@ -368,10 +423,12 @@ export class Terrain {
         soil[k * 4 + 1] = lf > 0.5 ? this.ltype[k] : btc * (1 - lf) + this.ltype[k] * lf;
         soil[k * 4 + 2] = this.dist[k];
         soil[k * 4 + 3] = d;
+        soil2[k * 4] = this.mdx[k]; soil2[k * 4 + 1] = this.mdz[k];
+        soil2[k * 4 + 2] = this.mtype[k]; soil2[k * 4 + 3] = this.mtype[k] ? this.mstr[k] : 0;
       }
     }
     const start = j0 * W, count = (j1 - j0 + 1) * W;
-    for (const [name, size] of [['position', 3], ['normal', 3], ['soil', 4]]) {
+    for (const [name, size] of [['position', 3], ['normal', 3], ['soil', 4], ['soil2', 4]]) {
       const a = this.geo.attributes[name];
       a.clearUpdateRanges();
       a.addUpdateRange(start * size, count * size);
@@ -395,19 +452,20 @@ export function makeSoilMaterial(detailTex) {
     uPitElev: { value: 0 },
     uPadElev: { value: 0 },
     uGrade: { value: 0 },
+    uDbg: { value: 0 },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, mat.userData.uniforms);
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
-        attribute vec4 soil; varying vec4 vSoil; varying vec3 vWPos; varying vec3 vWNrm;`)
+        attribute vec4 soil; attribute vec4 soil2; varying vec4 vSoil; varying vec4 vSoil2; varying vec3 vWPos; varying vec3 vWNrm;`)
       .replace('#include <worldpos_vertex>', `#include <worldpos_vertex>
-        vSoil = soil; vWPos = (modelMatrix * vec4(transformed,1.0)).xyz; vWNrm = normalize(mat3(modelMatrix) * objectNormal);`);
+        vSoil = soil; vSoil2 = soil2; vWPos = (modelMatrix * vec4(transformed,1.0)).xyz; vWNrm = normalize(mat3(modelMatrix) * objectNormal);`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform sampler2D uDetail; uniform vec4 uPit; uniform vec4 uPad;
-        uniform float uPitElev; uniform float uPadElev; uniform float uGrade;
-        varying vec4 vSoil; varying vec3 vWPos; varying vec3 vWNrm;
+        uniform float uPitElev; uniform float uPadElev; uniform float uGrade; uniform float uDbg;
+        varying vec4 vSoil; varying vec4 vSoil2; varying vec3 vWPos; varying vec3 vWNrm;
         float gH; float gRough;
         vec4 tri(vec3 p, vec3 bw, float s) {
           return texture2D(uDetail, p.zy * s) * bw.x + texture2D(uDetail, p.xz * s) * bw.y + texture2D(uDetail, p.xy * s) * bw.z;
@@ -430,26 +488,77 @@ export function makeSoilMaterial(detailTex) {
         vec4 d1 = tri(vWPos, bw, 0.55);
         vec4 d2 = tri(vWPos, bw, 0.11);
         vec4 d3 = tri(vWPos, bw, 1.9);
+        vec4 d4 = tri(vWPos, bw, 4.3);
         float loose = vSoil.x; float st = vSoil.y; float dist = vSoil.z; float cutd = vSoil.w;
-        vec3 cTop = vec3(0.20, 0.135, 0.085);
-        vec3 cClay = vec3(0.50, 0.32, 0.17);
-        vec3 cGrav = vec3(0.47, 0.42, 0.35);
-        vec3 cRock = vec3(0.36, 0.35, 0.34);
+        // real soil albedos are low (0.08-0.3): dark humus topsoil, orange-brown clay,
+        // grey-brown gravelly till, grey bedrock
+        vec3 cTop = vec3(0.10, 0.062, 0.036);
+        vec3 cClay = vec3(0.34, 0.155, 0.06);
+        vec3 cGrav = vec3(0.33, 0.285, 0.22);
+        vec3 cRock = vec3(0.29, 0.28, 0.27);
         vec3 soilc = mix(cTop, cClay, smoothstep(0.0, 1.0, st));
         soilc = mix(soilc, cGrav, smoothstep(1.0, 2.0, st));
         soilc = mix(soilc, cRock, smoothstep(2.0, 3.0, st));
-        // banding in cut faces (strata), clods and pebbles
-        float strata = sin(vWPos.y * 9.0 + d2.b * 6.0) * 0.5 + 0.5;
+        // mottling (iron staining in clay), strata bands on cut faces
+        soilc *= 0.82 + 0.36 * d2.b;
+        soilc = mix(soilc, soilc * vec3(1.12, 0.92, 0.78), smoothstep(0.55, 0.8, d2.r) * smoothstep(0.3, 1.0, st) * 0.6);
         float face = 1.0 - smoothstep(0.55, 0.85, wn.y);
-        soilc *= 1.0 + face * (strata - 0.5) * 0.18 * (1.0 - loose);
-        float pebble = smoothstep(0.55, 0.9, d1.g);
-        vec3 pebc = mix(vec3(0.42,0.40,0.37), vec3(0.62,0.58,0.52), d3.a);
-        float pebAmt = pebble * (0.15 + 0.6 * smoothstep(1.0, 2.2, st)) * (0.5 + 0.5*loose);
-        soilc = mix(soilc, pebc, pebAmt);
-        soilc *= 0.78 + 0.42 * d1.r * (0.7 + 0.3 * d2.b);
-        soilc *= mix(1.0, 0.82 + 0.4 * d3.r, loose);
-        // freshly cut bank is darker / moister; compacted tracks smoother
-        soilc *= mix(1.0, 0.82, smoothstep(0.2, 1.5, cutd) * (1.0 - loose));
+        float strata = sin(vWPos.y * 11.0 + d2.b * 5.0) * 0.5 + 0.5;
+        soilc *= 1.0 + face * (strata - 0.5) * 0.22 * (1.0 - loose);
+        // tool marks
+        vec2 md = vSoil2.xy; float mt = vSoil2.z; float ms = clamp(vSoil2.w, 0.0, 1.0);
+        float mlen = length(md);
+        vec2 mdir = mlen > 0.01 ? md / mlen : vec2(1.0, 0.0);
+        vec2 mperp = vec2(-mdir.y, mdir.x);
+        float along = dot(vWPos.xz, mdir);
+        // teeth grooves run along the cut on the actual (possibly steep) surface
+        vec3 m3 = normalize(vec3(mdir.x, 0.0, mdir.y) - wn * dot(vec3(mdir.x, 0.0, mdir.y), wn) + 1e-5);
+        vec3 p3 = normalize(cross(wn, m3));
+        float across = dot(vWPos, p3);
+        // a wall running parallel to the cut was only brushed by the bucket side
+        float sideOn = abs(dot(normalize(wn.xz + 1e-5), mperp)) * (1.0 - wn.y);
+        float wT = ms * (1.0 - clamp(abs(mt - 1.0) * 1.6, 0.0, 1.0));
+        float wB = ms * (1.0 - clamp(abs(mt - 2.0) * 1.6, 0.0, 1.0));
+        float wK = ms * (1.0 - clamp(abs(mt - 3.0) * 1.6, 0.0, 1.0));
+        float wY = ms * (1.0 - clamp(abs(mt - 4.0) * 1.6, 0.0, 1.0));
+        // anti-aliased patterns: widen with the screen-space derivative and fade out
+        // entirely once a stripe gets smaller than a couple of pixels
+        float uT = across / 0.26, uK = along / 0.2;
+        float fwT = fwidth(uT), fwK = fwidth(uK);
+        float aaT = 1.0 - smoothstep(0.12, 0.35, fwT), aaK = 1.0 - smoothstep(0.12, 0.35, fwK);
+        // where neighbouring nodes disagree on the tool direction (overlapping passes),
+        // stripes would kink along triangle edges: fade them out there
+        vec2 dW = fwidth(vWPos.xz);
+        float turn = length(fwidth(md)) / max(length(dW), 1e-4);   // rad per metre, roughly
+        float dirOk = 1.0 - smoothstep(0.6, 1.6, turn);
+        wT *= aaT * dirOk * (1.0 - smoothstep(0.25, 0.6, sideOn)); wK *= aaK * dirOk; wY *= aaK * dirOk; wB *= dirOk;
+        // scrape streaks: noise stretched ~20:1 along the cut reads like teeth-scored clay
+        // without the ruled-line look (and hides small direction changes between passes)
+        float sk = texture2D(uDetail, vec2(across * 2.6, dot(vWPos, m3) * 0.13)).r;
+        float sk2 = texture2D(uDetail, vec2(across * 7.0 + 0.3, dot(vWPos, m3) * 0.35)).g;
+        float groove = smoothstep(0.45, 0.8, sk) * 0.7 + smoothstep(0.6, 0.95, sk2) * 0.3;
+        float smear = 1.0 - groove;
+        float fb = sin(across * 120.0 + d3.r * 3.0) * 0.5 + 0.5;           // blade striations
+        float fk = abs(fract(along / 0.2) - 0.5) * 2.0;                     // grouser bars, 0.2 m pitch
+        float bar = smoothstep(0.62 - fwK, 0.82 + fwK, fk);
+        float fy = fract((along + abs(fract(across / 0.55) - 0.5) * 0.35) / 0.16); // tyre chevrons
+        float lug = smoothstep(0.45, 0.55, fy) * (1.0 - smoothstep(0.82, 0.92, fy));
+        float scraped = max(wT, wB);
+        // clods and crumbs on loose spoil, pebbles in till
+        float clod = d1.g;
+        float crumbs = smoothstep(0.55, 0.95, d4.g) * (1.0 - smoothstep(0.02, 0.08, fwidth(vWPos.x * 4.3)));
+        float pebble = smoothstep(0.78, 0.95, d1.g) * smoothstep(1.2, 2.2, st);
+        vec3 pebc = mix(vec3(0.30, 0.29, 0.27), vec3(0.48, 0.45, 0.40), d3.a);
+        soilc = mix(soilc, pebc, pebble * 0.8);
+        // cavity darkening between clods, lighter dry crust on clod tops
+        float looseAO = mix(1.0, 0.55 + 0.6 * clod, loose * (1.0 - scraped));
+        soilc *= looseAO * mix(1.0, 0.9 + 0.25 * crumbs, loose);
+        // moisture: freshly cut bank is darker, old exposed spoil dries lighter on top
+        float moist = smoothstep(0.1, 1.0, cutd) * (1.0 - loose) * 0.32 + groove * wT * 0.12;
+        soilc *= 1.0 - moist;
+        soilc *= mix(1.0, 1.06, loose * smoothstep(0.6, 1.0, wn.y));
+        soilc *= 1.0 - bar * wK * 0.18 - lug * wY * 0.15 - wB * 0.06;
+        float markH = wT * (smear * 0.1 - groove * 0.45) + wB * fb * 0.03 * aaT - wK * bar * 0.9 - wY * lug * 0.6;
         // grass on undisturbed original ground: two rotated low-frequency samples break up tiling
         vec2 rp = mat2(0.8, -0.6, 0.6, 0.8) * vWPos.xz;
         vec4 m1 = texture2D(uDetail, rp * 0.013);
@@ -462,6 +571,7 @@ export function makeSoilMaterial(detailTex) {
         float grassAmt = (1.0 - smoothstep(0.15, 0.85, dist)) * smoothstep(0.55, 0.8, wn.y);
         grassAmt *= smoothstep(0.1, 0.35, d2.r + d1.b * 0.4 + 0.2 + m1.r * 0.2);
         vec3 col = mix(soilc, grass, grassAmt);
+        float grassAmt0 = 1.0 - grassAmt;
         // trampled grass -> muddy brown
         col = mix(col, cTop * (0.8 + 0.3 * d1.r), smoothstep(0.2, 0.6, dist) * (1.0 - smoothstep(0.85,1.0,dist)) * 0.6);
         // survey spray paint (orange: excavation limit, blue: fill pad)
@@ -485,8 +595,10 @@ export function makeSoilMaterial(detailTex) {
           }
         }
         diffuseColor.rgb *= col;
-        gH = d1.r * 0.55 + d1.g * 0.6 * (0.4 + loose) + d3.r * 0.25;
-        gRough = 0.86 + 0.1 * d1.r - 0.1 * (1.0 - loose) * face;
+        float base = d1.r * 0.45 + d3.r * 0.22;
+        float lumpy = d1.g * 1.1 * loose;
+        gH = (base * (1.0 - 0.7 * scraped) + lumpy * (1.0 - scraped) + pebble * 0.5) + markH * grassAmt0;
+        gRough = 0.9 + 0.08 * d1.r - 0.22 * moist - 0.3 * wB - 0.12 * wT * (1.0 - groove);
       `)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = gRough;`)
