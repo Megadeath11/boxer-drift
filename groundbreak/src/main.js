@@ -63,7 +63,7 @@ async function init() {
       c.inv.copy(c.M).invert();
       const o = tmp.setFromMatrixPosition(c.M), R = Math.hypot(c.h.x, c.h.y, c.h.z) + 0.2;
       c.aabb.set([o.x - R, o.y - R, o.z - R, o.x + R, o.y + R, o.z + R]);
-      c.moving = machine.body.vel.lengthSq() > 1e-4 || machine.body.angVel.lengthSq() > 1e-5;
+      c.moving = machine.body.vel.lengthSq() > 4e-3 || machine.body.angVel.lengthSq() > 4e-4;
       c._dt = dt;
     };
     c.motionAt = (x, y, z) => machine.body.pointVel(tmp.set(x, y, z), pv).multiplyScalar(c._dt);
@@ -101,7 +101,7 @@ async function init() {
       if (f.length() < cap) { m.body.force.add(f); m.body.torque.add(t); }
       m.step(DT); m.guard();
     }
-    if ((chunkPhase++ & 1) === 1) chunkStep(2 * DT);
+    if ((chunkPhase++ & 3) === 3) chunkStep(4 * DT); // clods at 60 Hz
   }
   for (const m of machines) { m.updateVisuals(0); m.refreshCollisionLocal(); }
 

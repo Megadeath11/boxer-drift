@@ -79,12 +79,22 @@ Rules, all volume-conserving:
   breakout-force limit cap how fast the bucket can move through the ground. Dig too deep and
   the relief valve stalls the function. Bedrock stops the bucket dead. Hard digging pushes back
   on the machine, so a stalled boom-down can lift the tracks.
-* **Bucket contents** depend on orientation. Lift the bucket out with the mouth facing sideways
-  and it spills, so curl before you lift.
-* **Truck body load** is its own small granular grid. It shifts on slopes, heaps above the rails
-  (and spills over them), and slides out past the open tailgate once the body is steeper than the
-  soil-on-steel friction angle. Payload mass moves the truck's centre of gravity and changes
-  how it accelerates, brakes and rides.
+* **The bucket is solid steel**: a bent wrapper plate (bottom and back), side plates with
+  side cutters, a bevelled lip and five sharp forged teeth. When the steel cuts the ground, the
+  cut soil becomes **physical clods** (6-13 cm radius) right where it was. Nothing is teleported
+  into the bucket: a clod is carried only if the shell is physically around it. Soil cut by the
+  back of the bucket, or with no room left in the bowl, is shoved aside. Clods tumble out when
+  you tip the bucket and pour off the lip.
+* **Clod physics**: position-based granular dynamics with static/kinetic friction and rolling
+  resistance, so clods heap at a natural angle. They collide with the ground, the bucket, the
+  truck body, the blade and the machines. Every clod pushes back on what it rests on, so a full
+  bucket or truck body really is heavy (weight, centre of mass and handling).
+* **Truck body** is a real container: floor, sides, front wall and a top-hinged tailgate that
+  swings open as the body is raised. Loads stay as clods, heap above the rails if you overload one
+  spot (and spill over), shift when you drive, and slide out when tipped.
+* **Clods on open ground** stay clods. Once they have lain still for about 45 s, or are crushed
+  under tracks or tyres, they merge into the ground's loose soil layer. Spoil piles are still
+  covered in visible 3D clods.
 * **Dozer blade.** It cuts everything above the cutting edge and carries it as a real pile, which
   spills around the wings and over the top. Resistance is soil-on-soil friction of the carried
   load plus specific cutting resistance. When that exceeds track traction (μ·W), the tracks slip.

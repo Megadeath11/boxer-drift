@@ -307,7 +307,7 @@ export class Truck extends Machine {
     const o = new THREE.Vector3(0, 0.6, BED_L / 2).applyMatrix4(c.M);
     const R = 3.6;
     c.aabb.set([o.x - R, o.y - R, o.z - R, o.x + R, o.y + R, o.z + R]);
-    c.moving = this.body.vel.lengthSq() > 1e-4 || this.body.angVel.lengthSq() > 1e-5 || this.hoistActive || Math.abs(this.tailgate - (this._lastGate || 0)) > 1e-4;
+    c.moving = this.body.vel.lengthSq() > 4e-3 || this.body.angVel.lengthSq() > 4e-4 || this.hoistActive || Math.abs(this.tailgate - (this._lastGate || 0)) > 1e-4;
     this._lastGate = this.tailgate;
     const tmp = new THREE.Vector3(), inv = c.inv, Mp = c.Mprev;
     c.motionAt = (x, y, z) => { tmp.set(x, y, z).applyMatrix4(inv).applyMatrix4(Mp); return tmp.set(x - tmp.x, y - tmp.y, z - tmp.z); };

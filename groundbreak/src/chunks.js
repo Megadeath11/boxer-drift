@@ -208,13 +208,14 @@ export class SoilChunks {
       const last = it === ITER - 1;
       // clod-clod
       for (let i = 0; i < n; i++) {
+        if (this.asleep[i]) continue; // sleeping clods are handled from their awake neighbours
         const ci = Math.floor(qx[i] / CELL), cj = Math.floor(qy[i] / CELL), ck = Math.floor(qz[i] / CELL);
-        const wi = this.asleep[i] ? 0 : 1 / r[i] ** 3;
+        const wi = 1 / r[i] ** 3;
         for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let cc = -1; cc <= 1; cc++) {
           const h = this._hash(ci + a, cj + b, ck + cc);
           for (let s = this.cellStart[h]; s < this.cellStart[h + 1]; s++) {
             const j = this.cellIdx[s];
-            if (j <= i) continue;
+            if (j === i || (j < i && !this.asleep[j])) continue;
             const dx = qx[i] - qx[j], dy = qy[i] - qy[j], dz = qz[i] - qz[j];
             const rr = r[i] + r[j];
             const d2 = dx * dx + dy * dy + dz * dz;
@@ -224,8 +225,9 @@ export class SoilChunks {
             if (W === 0) continue;
             const d = Math.sqrt(d2), pen = rr - d;
             const nx = dx / d, ny = dy / d, nz = dz / d;
-            if (pen > 0.004 && this.asleep[j] && wi) { this.asleep[j] = 0; this.sleep[j] = 0; }
-            if (pen > 0.004 && this.asleep[i] && wj) { this.asleep[i] = 0; this.sleep[i] = 0; }
+            // only a clod that is actually moving wakes a sleeping one (settling jitter doesn't)
+            if (pen > 0.004 && this.asleep[j] && wi && vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i] > 0.09) { this.asleep[j] = 0; this.sleep[j] = 0; }
+            if (pen > 0.004 && this.asleep[i] && wj && vx[j] * vx[j] + vy[j] * vy[j] + vz[j] * vz[j] > 0.09) { this.asleep[i] = 0; this.sleep[i] = 0; }
             const ai = wi / W, aj = wj / W;
             qx[i] += nx * pen * ai; qy[i] += ny * pen * ai; qz[i] += nz * pen * ai;
             qx[j] -= nx * pen * aj; qy[j] -= ny * pen * aj; qz[j] -= nz * pen * aj;
@@ -256,7 +258,10 @@ export class SoilChunks {
           qy[i] += pen;
           if (last) { this._fric(i, pen, 0, 1, 0, 0, 0, 0, 0.9); this.sn[i] += 2; }
         }
+        const X = qx[i], Y = qy[i], Z = qz[i], R = r[i];
         for (const c of colliders) {
+          const bb = c.aabb;
+          if (X < bb[0] - R || X > bb[3] + R || Y < bb[1] - R || Y > bb[4] + R || Z < bb[2] - R || Z > bb[5] + R) continue;
           const res = c.kind === 'bucket' ? this._bucket(i, c, last) : c.kind === 'bed' ? this._bed(i, c, last) : this._box(i, c, last);
           if (res === 2 && c.crush) { this._crushList = this._crushList || []; this._crushList.push(i); }
         }
@@ -532,7 +537,7 @@ export class SoilChunks {
       this._m.compose(this._v.set(this.px[i], this.py[i], this.pz[i]), this._q, this._s.set(r * 1.08, r * 1.08, r * 1.08));
       this.mesh.setMatrixAt(i, this._m);
       const t = Math.min(3, this.type[i]), a = Math.floor(t), b = Math.min(3, a + 1), f = t - a;
-      const v = 0.72 + 0.5 * ((Math.imul(i + 7, 2654435761) >>> 24) / 255);
+      const v = 0.55 + 0.4 * ((Math.imul(i + 7, 2654435761) >>> 24) / 255);
       this._c.setRGB((COLS[a][0] * (1 - f) + COLS[b][0] * f) * v, (COLS[a][1] * (1 - f) + COLS[b][1] * f) * v, (COLS[a][2] * (1 - f) + COLS[b][2] * f) * v);
       this.mesh.setColorAt(i, this._c);
     }
