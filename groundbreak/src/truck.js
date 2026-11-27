@@ -39,8 +39,6 @@ export class Truck extends Machine {
     this.gear = 1; this.reverse = false; this.shiftT = 0;
     this.steer = 0; this.tip = 0; // body angle (rad)
     this.parkBrake = true;
-    this.bed = new Float32Array(BED_NX * BED_NZ);
-    this.bedType = 1;
     this.dumpedInPad = 0;
     this._bedAcc = 0;
     this.tailgate = 0;
@@ -131,15 +129,6 @@ export class Truck extends Machine {
     cyl(0.04, BED_W + 0.3, m.steel, 'x', 0, 0, 0, TG);
     // hinge pivots
     cyl(0.06, 1.0, m.steel, 'x', 0, 0, 0, BD);
-    // ---- load mesh ----
-    const lg = new THREE.PlaneGeometry(BED_W - 0.02, BED_L - 0.02, BED_NX - 1, BED_NZ - 1);
-    lg.rotateX(-Math.PI / 2);
-    lg.translate(0, fl, BED_L / 2);
-    this.loadGeo = lg;
-    this.loadMat = new THREE.MeshStandardMaterial({ color: 0x7c5230, roughness: 1, map: this.detailTex || null });
-    this.loadMesh = new THREE.Mesh(lg, this.loadMat);
-    this.loadMesh.castShadow = true; this.loadMesh.receiveShadow = true;
-    BD.add(this.loadMesh);
     // hoist: front-mount telescopic cylinder
     const hoistA = marker(G, 0, 0.95, 1.22);
     const hoistB = marker(BD, 0, 0.55, BED_L + 0.12);
@@ -178,7 +167,6 @@ export class Truck extends Machine {
     this.masses = [
       { m: S.emptyMass - 3600, pos: () => new THREE.Vector3(0, 0.0, 1.2) },
       { m: 3600, pos: () => self.bedLocalToBody(new THREE.Vector3(0, 0.5, BED_L / 2)) },
-      { m: () => self.loadMass(), pos: () => self.loadCOM() },
     ];
   }
 
@@ -189,42 +177,10 @@ export class Truck extends Machine {
     return v.set(v.x + HINGE.x, y + HINGE.y, z + HINGE.z);
   }
 
-  loadVolume() { let s = 0; for (let i = 0; i < this.bed.length; i++) s += this.bed[i]; return s * BED_CS * BED_CS; }
-  loadMass() { return this.loadVolume() * SOIL.densLoose[Math.round(this.bedType)]; }
-  loadCOM() {
-    let sx = 0, sz = 0, sy = 0, sm = 0;
-    for (let j = 0; j < BED_NZ; j++) for (let i = 0; i < BED_NX; i++) {
-      const h = this.bed[j * BED_NX + i];
-      if (h <= 0) continue;
-      sx += h * this.cellX(i); sz += h * this.cellZ(j); sy += h * (FLOOR_Y + h / 2); sm += h;
-    }
-    if (sm <= 0) return this.bedLocalToBody(new THREE.Vector3(0, 0.5, BED_L / 2));
-    return this.bedLocalToBody(new THREE.Vector3(sx / sm, sy / sm, sz / sm));
-  }
+  loadVolume() { return this.payloadVol || 0; }
+  loadMass() { return (this.payloadVol || 0) * SOIL.densLoose[Math.round(clamp(this.payloadType || 1, 0, 3))]; }
   cellX(i) { return -BED_W / 2 + (i + 0.5) * (BED_W / BED_NX); }
   cellZ(j) { return (j + 0.5) * (BED_L / BED_NZ); }
-
-  /** Particle receiver: catch falling soil into the body. */
-  tryCatch(x, y, z, vol, type) {
-    if (Math.abs(x - this.body.pos.x) > 6 || Math.abs(z - this.body.pos.z) > 6) return false;
-    if (!this._bedInv) return false;
-    const p = new THREE.Vector3(x, y, z).applyMatrix4(this._bedInv);
-    if (p.x < -BED_W / 2 || p.x > BED_W / 2 || p.z < 0 || p.z > BED_L) {
-      // landing on the side rails / cab shield -> deflects; let it fall
-      return false;
-    }
-    const i = clamp(Math.floor((p.x + BED_W / 2) / (BED_W / BED_NX)), 0, BED_NX - 1);
-    const j = clamp(Math.floor(p.z / (BED_L / BED_NZ)), 0, BED_NZ - 1);
-    const k = j * BED_NX + i;
-    if (p.y > FLOOR_Y + this.bed[k] + 0.05) return false;
-    if (p.y < FLOOR_Y - 0.5) return false;
-    const cellA = (BED_W / BED_NX) * (BED_L / BED_NZ);
-    const total = this.loadVolume();
-    this.bedType = (this.bedType * total + type * vol) / (total + vol);
-    this.bed[k] += vol / cellA;
-    if (Math.random() < 0.15) this.particles.dust.puff(x, y + 0.2, z, 0.8, type);
-    return true;
-  }
 
   control(inp) { this.inp = inp; if (inp.park) this.parkBrake = !this.parkBrake; }
 
@@ -335,82 +291,27 @@ export class Truck extends Machine {
     // tailgate swings open by gravity once the body is raised
     const tgTarget = this.tip > 6 * DEG ? Math.min(this.tip * 1.1, 1.1) : 0;
     this.tailgate += (tgTarget - this.tailgate) * Math.min(1, dt * 3);
-    // granular flow inside the body (effective height along world vertical)
-    const bedM = this._bedM;
-    if (!bedM) return;
-    const e = bedM.elements;
-    const ux = e[1], uy = e[5], uz = e[9]; // world Y component of bed local axes (x,y,z)
-    const tanR = Math.tan(SOIL.REPOSE_LOOSE_DEG * DEG);
-    const b = this.bed, NX = BED_NX, NZ = BED_NZ;
-    const dx = BED_W / NX, dz = BED_L / NZ;
-    const eff = (i, j) => this.cellX(i) * ux + (FLOOR_Y + b[j * NX + i]) * uy + this.cellZ(j) * uz;
-    const flow = (ka, kb, Ya, Yb, d) => {
-      let dh = Ya - Yb, src = ka, dst = kb;
-      if (dh < 0) { dh = -dh; src = kb; dst = ka; }
-      const lim = tanR * d;
-      if (dh > lim && b[src] > 0) {
-        const m = Math.min(b[src], (dh - lim) * 0.25 / Math.max(uy, 0.3));
-        b[src] -= m; b[dst] += m;
-      }
-    };
-    for (let it = 0; it < 2; it++) {
-      for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
-        const k = j * NX + i;
-        if (i < NX - 1) flow(k, k + 1, eff(i, j), eff(i + 1, j), dx);
-        if (j < NZ - 1) flow(k, k + NX, eff(i, j), eff(i, j + 1), dz);
-      }
-    }
-    // the whole load slides on the steel floor once the body is steeper than the
-    // soil-on-steel friction angle (~28 deg), even below the soil's repose angle
-    const floorTan = uz / Math.max(uy, 0.05);
-    const slideRate = clamp((floorTan - Math.tan(28 * DEG)) * 2.5, 0, 3) * dt;
-    if (slideRate > 0) {
-      for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) {
-        const k = j * NX + i;
-        if (b[k] <= 0) continue;
-        const m = b[k] * Math.min(0.5, slideRate * (BED_L / NZ) * 4);
-        if (j > 0) { b[k] -= m; b[k - NX] += m; }
-      }
-    }
-    // outflow over the tail (tailgate open) and over the side rails
-    const cellA = dx * dz;
-    const out = (k, vol, lx, ly, lz, vx) => {
-      if (vol <= 0) return;
-      b[k] -= vol / cellA;
-      const wp = new THREE.Vector3(lx, ly, lz).applyMatrix4(bedM);
-      const vel = new THREE.Vector3();
-      this.body.pointVel(wp, vel);
-      this.particles.emit(wp.x, wp.y, wp.z, vel.x + vx.x, vel.y + vx.y, vel.z + vx.z, vol, this.bedType, 0.35);
-      if (this.inPad(wp.x, wp.z)) this.dumpedInPad += vol;
-      this.dumpedTotal = (this.dumpedTotal || 0) + vol;
-    };
-    const back = new THREE.Vector3(-e[8], -e[9], -e[10]).multiplyScalar(1.2);
-    if (this.tailgate > 0.15) {
-      for (let i = 0; i < NX; i++) {
-        const k = i; // j = 0 row at tail
-        const Y0 = eff(i, 0);
-        const Ylip = this.cellX(i) * ux + FLOOR_Y * uy + (-dz * 0.5) * uz;
-        const ex = Y0 - Ylip - tanR * dz * 0.5;
-        if ((ex > 0 || slideRate > 0) && b[k] > 0) {
-          const m = Math.min(b[k], Math.max(0, ex) * 0.5 / Math.max(uy, 0.3) + 0.002 + b[k] * Math.min(0.5, slideRate * 4)) * cellA;
-          out(k, m, this.cellX(i), FLOOR_Y + b[k] * 0.5, -0.1, back);
-        }
-      }
-    }
-    for (let j = 0; j < NZ; j++) for (const i of [0, NX - 1]) {
-      const k = j * NX + i;
-      if (b[k] > BED_SIDE + 0.05) {
-        const m = (b[k] - BED_SIDE) * 0.3 * cellA;
-        const side = i === 0 ? -1 : 1;
-        out(k, m, side * (BED_W / 2 + 0.15), FLOOR_Y + BED_SIDE + 0.05, this.cellZ(j), new THREE.Vector3(e[0] * side, 0, e[2] * side));
-      }
-    }
-    // front over cab shield
-    for (let i = 0; i < NX; i++) {
-      const k = (NZ - 1) * NX + i;
-      if (b[k] > BED_SIDE + 0.4) out(k, (b[k] - BED_SIDE - 0.4) * 0.3 * cellA, this.cellX(i), FLOOR_Y + BED_SIDE + 0.45, BED_L + 0.1, new THREE.Vector3());
-    }
-    for (let k = 0; k < b.length; k++) if (b[k] < 1e-5) b[k] = 0;
+  }
+
+  /** Body (dump box) collider for the clod solver. */
+  bedCollider() {
+    const c = this._bedc || (this._bedc = { kind: 'bed', machine: this, M: new THREE.Matrix4(), Mprev: new THREE.Matrix4(), inv: new THREE.Matrix4(),
+      hw: BED_W / 2, len: BED_L, floor: FLOOR_Y, side: BED_SIDE, front: FLOOR_Y + BED_SIDE + 0.35, gate: 0, mu: 0.5, aabb: new Float32Array(6), _init: false });
+    c.Mprev.copy(c.M);
+    const local = new THREE.Matrix4().makeRotationX(-this.tip).setPosition(HINGE.x, HINGE.y, HINGE.z);
+    const bm = new THREE.Matrix4().compose(this.body.pos, this.body.quat, new THREE.Vector3(1, 1, 1));
+    c.M.multiplyMatrices(bm, local);
+    if (!c._init) { c.Mprev.copy(c.M); c._init = true; }
+    c.inv.copy(c.M).invert();
+    c.gate = this.tailgate;
+    const o = new THREE.Vector3(0, 0.6, BED_L / 2).applyMatrix4(c.M);
+    const R = 3.6;
+    c.aabb.set([o.x - R, o.y - R, o.z - R, o.x + R, o.y + R, o.z + R]);
+    c.moving = this.body.vel.lengthSq() > 1e-4 || this.body.angVel.lengthSq() > 1e-5 || this.hoistActive || Math.abs(this.tailgate - (this._lastGate || 0)) > 1e-4;
+    this._lastGate = this.tailgate;
+    const tmp = new THREE.Vector3(), inv = c.inv, Mp = c.Mprev;
+    c.motionAt = (x, y, z) => { tmp.set(x, y, z).applyMatrix4(inv).applyMatrix4(Mp); return tmp.set(x - tmp.x, y - tmp.y, z - tmp.z); };
+    return c;
   }
 
   inPad(x, z) { const p = SITE.pad; return x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1; }
@@ -418,7 +319,7 @@ export class Truck extends Machine {
   updateVisuals(dt) {
     this.syncRoot();
     this.bodyGroup.rotation.x = -this.tip;
-    this.tailGroup.rotation.x = -this.tailgate * 0.9;
+    this.tailGroup.rotation.x = this.tailgate;
     // wheels
     for (const w of this.wheelDefs) {
       const sag = clamp(w.comp, -0.2, 0.33);
@@ -433,22 +334,6 @@ export class Truck extends Machine {
     // body matrix (for particles + bed flow)
     this._bedM = this.bodyGroup.matrixWorld.clone();
     this._bedInv = this._bedM.clone().invert();
-    // load mesh
-    const pos = this.loadGeo.attributes.position;
-    const b = this.bed;
-    let any = false;
-    for (let j = 0; j < BED_NZ; j++) for (let i = 0; i < BED_NX; i++) {
-      // PlaneGeometry rotated: rows go along -z after rotation; map index carefully
-      const vi = j * BED_NX + i;
-      const h = b[j * BED_NX + i];
-      if (h > 0.005) any = true;
-      pos.setY(vi, FLOOR_Y + (h > 0.005 ? h : -0.03));
-    }
-    pos.needsUpdate = true;
-    this.loadGeo.computeVertexNormals();
-    this.loadMesh.visible = any;
-    const col = [0x4f3a26, 0x7c5230, 0x77695a, 0x606060][Math.round(clamp(this.bedType, 0, 3))];
-    this.loadMat.color.setHex(col);
     this.emitExhaust(dt);
     for (const w of this.wheelDefs) if (w.spinning && Math.random() < 0.3) {
       const p = new THREE.Vector3(w.x, -RIDE + 0.1, w.z - 0.4).applyQuaternion(this.body.quat).add(this.body.pos);

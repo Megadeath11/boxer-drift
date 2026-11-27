@@ -31,6 +31,9 @@ export class Machine {
     this.lookTarget = new THREE.Vector3();
     this.exhaust = new THREE.Object3D();
     this._smokeT = 0;
+    // reaction forces from soil clods pressing on this machine (set by the clod solver)
+    this._chunkF = new THREE.Vector3();
+    this._chunkT = new THREE.Vector3();
   }
 
   place(x, z, yaw, lift = 1.2) {

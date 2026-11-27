@@ -19,6 +19,16 @@ const FOOT = new THREE.Vector3(-0.12, 0.85, 1.0); // boom foot pin in upper fram
 const UPPER_Y = 0.05;                              // upper frame bottom in body frame
 const SHELL = [[1.45, 0.0], [1.38, 0.22], [1.24, 0.45], [1.02, 0.66], [0.74, 0.82], [0.42, 0.88],
   [0.14, 0.80], [-0.04, 0.58], [-0.08, 0.32], [0.0, 0.10]];
+// collision shell: tooth tips -> lip -> bottom -> back -> top (bucket local u,w)
+export const SHELL_COLLIDE = [[1.68, -0.03]].concat(SHELL);
+export function inBucketProfile(u, w) {
+  let c = false;
+  for (let i = 0, j = SHELL.length - 1; i < SHELL.length; j = i++) {
+    const [ui, wi] = SHELL[i], [uj, wj] = SHELL[j];
+    if ((wi > w) !== (wj > w) && u < ((uj - ui) * (w - wi)) / (wj - wi) + ui) c = !c;
+  }
+  return c;
+}
 const L1 = [LS - 0.45, 0.14]; // rocker pin on stick
 const B2 = [-0.12, 0.40];     // coupler pin on bucket (u,w)
 const ROCKER = 0.52, COUPLER = 0.56;
@@ -55,6 +65,20 @@ function shellSamples() {
   return out;
 }
 const SAMPLES = shellSamples();
+
+/** Forged bucket tooth: tapered in plan and profile to a sharp chisel point. */
+function toothGeometry() {
+  const L = 0.27;
+  const g = profile([[0.0, 0.05], [0.1, 0.042], [0.22, 0.016], [L, -0.004], [L - 0.01, -0.014], [0.14, -0.03], [0.0, -0.036]], 0.095, 0.006, 4);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.min(1, Math.max(0, p.getZ(i) / L));
+    p.setX(i, p.getX(i) * (1 - 0.72 * t * t));       // narrows to a 27 mm chisel
+    p.setY(i, p.getY(i) - 0.012 * t * t);            // slight downward hook
+  }
+  g.computeVertexNormals();
+  return g;
+}
 
 export class Excavator extends Machine {
   constructor(scene, terrain, particles) {
@@ -271,50 +295,44 @@ export class Excavator extends Machine {
   buildBucket(B) {
     const m = materials();
     const W = S.bucketWidth;
-    // shell plate
-    B.add(new THREE.Mesh(plate(SHELL, 0.035, W), m.paint));
-    // wear strips on the back
-    for (const x of [-0.4, 0, 0.4]) {
-      const ws = new THREE.Mesh(plate(SHELL.slice(1, 7).map(([u, w]) => [u, w + 0.025]), 0.02, 0.08), m.wornSteel);
+    const steel = m.paint;
+    // main wrapper: one bent 20 mm plate forming bottom, back and top
+    B.add(new THREE.Mesh(plate(SHELL, 0.03, W), steel));
+    // replaceable wear strips and heel plate on the back (bare, polished by soil)
+    for (const x of [-0.42, -0.14, 0.14, 0.42]) {
+      const ws = new THREE.Mesh(plate(SHELL.slice(1, 7).map(([u, w]) => [u, w + 0.028]), 0.022, 0.07), m.wornSteel);
       ws.position.x = x; B.add(ws);
     }
-    // side plates
-    const sideShape = SHELL.concat([[0.7, -0.02]]);
+    const heel = new THREE.Mesh(plate(SHELL.slice(2, 5).map(([u, w]) => [u, w + 0.03]), 0.025, W - 0.1), m.wornSteel);
+    B.add(heel);
+    // side plates (25 mm) with bolt-on side cutters along the leading edge
     for (const s of [1, -1]) {
-      const sp = new THREE.Mesh(profile(sideShape, 0.03, 0.006), m.paint); sp.position.x = s * (W / 2 + 0.01); B.add(sp);
-      // side cutter
-      const sc = new THREE.Mesh(profile([[1.0, -0.02], [1.42, -0.02], [1.3, 0.25], [1.0, 0.2]], 0.035, 0.005), m.wornSteel);
-      sc.position.x = s * (W / 2 + 0.03); B.add(sc);
+      const sp = new THREE.Mesh(profile(SHELL.concat([[0.55, 0.0]]), 0.035, 0.006), steel);
+      sp.position.x = s * (W / 2 + 0.017); B.add(sp);
+      const sc = new THREE.Mesh(profile([[0.95, -0.03], [1.5, -0.03], [1.36, 0.3], [1.02, 0.36]], 0.05, 0.006), m.wornSteel);
+      sc.position.x = s * (W / 2 + 0.04); B.add(sc);
+      for (let i = 0; i < 3; i++) { const bolt = cyl(0.018, 0.06, m.darkSteel, 'x', s * (W / 2 + 0.07), 0.12 + i * 0.07, 1.08 + i * 0.12, B, 8); void bolt; }
     }
-    // ears / lugs
+    // ears / pin lugs and the H-link boss
     for (const s of [0.24, -0.24]) {
-      const e = new THREE.Mesh(profile([[-0.22, -0.02], [0.25, -0.02], [0.12, 0.5], [-0.12, 0.55], [-0.26, 0.3]], 0.05, 0.01), m.paint);
+      const e = new THREE.Mesh(profile([[-0.22, -0.02], [0.25, -0.02], [0.12, 0.5], [-0.12, 0.55], [-0.26, 0.3]], 0.05, 0.01), steel);
       e.position.x = s; B.add(e);
     }
     cyl(0.08, 0.62, m.steel, 'x', 0, 0, 0, B);
     cyl(0.065, 0.6, m.steel, 'x', 0, B2[1], B2[0], B);
-    // top rear plate (bucket "wrapper")
-    box(W, 0.035, 0.32, m.paint, 0, 0.06, 0.15, B);
-    // cutting edge + teeth
-    box(W, 0.035, 0.16, m.wornSteel, 0, 0.012, 1.38, B).rotation.x = -0.12;
-    const toothG = new THREE.ConeGeometry(0.055, 0.26, 4); toothG.rotateX(Math.PI / 2); toothG.rotateZ(Math.PI / 4); toothG.scale(1, 0.55, 1);
+    box(W, 0.035, 0.32, steel, 0, 0.06, 0.15, B);
+    // cutting lip: thick high-strength plate, bevelled
+    const lip = new THREE.Mesh(profile([[1.18, 0.05], [1.45, -0.012], [1.47, 0.012], [1.2, 0.085]], W + 0.06, 0.004), m.wornSteel);
+    B.add(lip);
+    // five sharp teeth on cast adapters
+    const adapterG = profile([[-0.05, 0.06], [0.14, 0.035], [0.16, -0.02], [-0.05, -0.03]], 0.1, 0.008);
+    const toothG = toothGeometry();
     for (let i = 0; i < 5; i++) {
       const x = -0.52 + i * 0.26;
-      const adapter = box(0.09, 0.07, 0.16, m.darkSteel, x, 0.02, 1.42, B);
-      adapter.rotation.x = -0.12;
-      const t = new THREE.Mesh(toothG, m.wornSteel);
-      t.position.set(x, 0.0, 1.6); t.rotation.x = -0.12; B.add(t);
+      const ad = new THREE.Mesh(adapterG, m.darkSteel); ad.position.set(x, 0.0, 1.42); B.add(ad);
+      const pin = cyl(0.014, 0.11, m.steel, 'x', x, 0.01, 1.5, B, 8); void pin;
+      const t = new THREE.Mesh(toothG, m.wornSteel); t.position.set(x, 0.005, 1.53); B.add(t);
     }
-    // contents
-    const inner = SHELL.map(([u, w]) => [u - 0.01, w - 0.03]).concat([[0.05, 0.05]]);
-    const cg = profile(inner.map(([u, w]) => [u, w - 0.88]), W - 0.08, 0.02, 4);
-    this.contentMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 1 });
-    const cm = new THREE.Mesh(cg, this.contentMat);
-    this.content = new THREE.Group(); this.content.position.y = 0.88; this.content.add(cm); B.add(this.content);
-    const heap = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), this.contentMat);
-    heap.rotation.x = Math.PI; // dome pointing to -w (out of the mouth)
-    this.heap = heap; heap.position.set(0, 0.02, 0.72); B.add(heap);
-    this.content.visible = false; heap.visible = false;
   }
 
   setupPhysics() {
@@ -343,7 +361,7 @@ export class Excavator extends Machine {
       { m: 10500, pos: () => self.upperToBody(new THREE.Vector3(0, 0.75, -0.85)) },
       { m: 1900, pos: () => { const c = Math.cos(self.a1), sn = Math.sin(self.a1); return self.upperToBody(arm(2.5 * c - 0.4 * sn, 2.5 * sn + 0.4 * c).clone()); } },
       { m: 1000, pos: () => { const p = self.armPoints(); return self.upperToBody(arm((p.boomTip[0] + p.pin[0]) / 2, (p.boomTip[1] + p.pin[1]) / 2).clone()); } },
-      { m: () => 900 + self.load * SOIL.densLoose[Math.round(self.loadType)], pos: () => { const p = self.armPoints(); const s = p.pin[0] + p.u[0] * 0.7 + p.w[0] * 0.45, t = p.pin[1] + p.u[1] * 0.7 + p.w[1] * 0.45; return self.upperToBody(arm(s, t).clone()); } },
+      { m: 1100, pos: () => { const p = self.armPoints(); const s = p.pin[0] + p.u[0] * 0.7 + p.w[0] * 0.45, t = p.pin[1] + p.u[1] * 0.7 + p.w[1] * 0.45; return self.upperToBody(arm(s, t).clone()); } },
     ];
   }
 
@@ -369,6 +387,34 @@ export class Excavator extends Machine {
     const t = new THREE.Matrix4().makeRotationFromQuaternion(q).setPosition(0, UPPER_Y, 0);
     const b = new THREE.Matrix4().compose(this.body.pos, this.body.quat, new THREE.Vector3(1, 1, 1));
     return out.multiplyMatrices(b, t);
+  }
+
+  /** World matrix of the bucket frame (x lateral, y = w toward the back, z = u pin->tip). */
+  bucketMatrix(pose, out) {
+    const M = this.upperMatrix(pose.swing, this._mUpper2 || (this._mUpper2 = new THREE.Matrix4()));
+    const ap = this.armPoints(pose.a1, pose.r2, pose.r3);
+    const B = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, ap.w[1], ap.w[0]), new THREE.Vector3(0, ap.u[1], ap.u[0]));
+    B.setPosition(FOOT.x, FOOT.y + ap.pin[1], FOOT.z + ap.pin[0]);
+    return out.multiplyMatrices(M, B);
+  }
+
+  /** Collider description for the clod solver (call once per clod step). */
+  bucketCollider() {
+    const c = this._bc || (this._bc = { kind: 'bucket', machine: this, M: new THREE.Matrix4(), Mprev: new THREE.Matrix4(), inv: new THREE.Matrix4(),
+      shell: SHELL_COLLIDE, halfW: S.bucketWidth / 2, inside: inBucketProfile, mu: 0.45, aabb: new Float32Array(6), moving: true, _init: false });
+    c.Mprev.copy(c.M);
+    this.bucketMatrix(this, c.M);
+    if (!c._init) { c.Mprev.copy(c.M); c._init = true; }
+    c.inv.copy(c.M).invert();
+    const o = new THREE.Vector3().setFromMatrixPosition(c.M);
+    const R = 2.2;
+    c.aabb.set([o.x - R, o.y - R, o.z - R, o.x + R, o.y + R, o.z + R]);
+    const pe = new THREE.Vector3().setFromMatrixPosition(c.Mprev);
+    c.moving = pe.distanceToSquared(o) > 1e-8 || Math.abs(this.w.r3) + Math.abs(this.w.swing) > 1e-3;
+    const tmp = new THREE.Vector3(), inv = c.inv, Mp = c.Mprev;
+    c.motionAt = (x, y, z) => { tmp.set(x, y, z).applyMatrix4(inv).applyMatrix4(Mp); return tmp.set(x - tmp.x, y - tmp.y, z - tmp.z); };
+    return c;
   }
 
   /** World positions of rasterised bucket samples for a pose. */
@@ -564,6 +610,15 @@ export class Excavator extends Machine {
     this._rockPen = this._rockPen || new Map();
     this._rockPen.clear();
     const center = after.tip.clone().add(after.back).multiplyScalar(0.5);
+    const Mb = this.bucketMatrix(pose, new THREE.Matrix4());
+    const Mbi = Mb.clone().invert(), mbe = Mbi.elements;
+    const accept = (x, y, z) => {
+      const lx = mbe[0] * x + mbe[4] * y + mbe[8] * z + mbe[12];
+      const ly = mbe[1] * x + mbe[5] * y + mbe[9] * z + mbe[13];
+      const lz = mbe[2] * x + mbe[6] * y + mbe[10] * z + mbe[14];
+      return Math.abs(lx) < S.bucketWidth / 2 - 0.05 && inBucketProfile(lz, ly) && ly > 0.06;
+    };
+    const spawnVel = moveDir.clone().multiplyScalar(moveLen / dt);
     // a bucket that isn't moving doesn't cut: soil that slumps against it just rests there
     const still = moveLen < 0.003;
     for (const [k, [lo, hi]] of after.env) {
@@ -590,17 +645,13 @@ export class Excavator extends Machine {
       if (vol <= 0) continue;
       cutVol += vol;
       this.st = this.st || { cut: 0, into: 0, pushed: 0, steps: 0 }; this.st.cut += vol;
-      const room = this.capacity * 1.08 - this.load;
-      if (scoop && room > 0) {
-        const into = Math.min(room, vol);
-        this.loadType = (this.loadType * this.load + type * into) / (this.load + into);
-        this.load += into;
-        this.st.into += into;
-        const rest = vol - into;
-        if (rest > 0) this.pushAside(k, rest, type, moveDir, center);
-      } else {
-        this.pushAside(k, vol, type, moveDir, center);
-      }
+      // the cut soil becomes clods right where it was; only those the steel actually
+      // surrounds are in the bucket. Soil cut by the back of the bucket, or with no
+      // room left inside, is shoved aside instead.
+      const j = (k / T.W) | 0, ii = k - j * T.W;
+      const left = this.chunks ? this.chunks.fromCut(T.nodeX(ii), T.nodeX(j), lo, Math.min(H, hi + 0.25), vol, type, accept, spawnVel) : vol;
+      if (left > 1e-6) this.pushAside(k, left, type, moveDir, center);
+      this.st.into += vol - left;
     }
     // the bucket lip smooths what it passes over: shave nodes left proud of their
     // neighbours (sampling stair-steps), so cut faces come out as clean planes
@@ -614,9 +665,9 @@ export class Excavator extends Machine {
         if (ex > 0.002 && T.bank[k] - ex > T.rock[k]) {
           const v = T.take(k, ex * 0.6);
           if (v > 0) {
-            const room = this.capacity * 1.08 - this.load;
-            if (scoop && room > 0) { const into = Math.min(room, v); this.loadType = (this.loadType * this.load + T.lastType * into) / (this.load + into); this.load += into; if (v > into) this.pushAside(k, v - into, T.lastType, moveDir, center); }
-            else this.pushAside(k, v, T.lastType, moveDir, center);
+            const j = (k / T.W) | 0, ii = k - j * T.W;
+            const left = this.chunks ? this.chunks.fromCut(T.nodeX(ii), T.nodeX(j), lo, H, v, T.lastType, accept, spawnVel) : v;
+            if (left > 1e-6) this.pushAside(k, left, T.lastType, moveDir, center);
           }
         }
       }
@@ -642,27 +693,7 @@ export class Excavator extends Machine {
     this.stall = lam < 0.999 && iLen > 1e-4 ? 1 : this.stall * 0.9;
     this.touching = touching;
     this.digRate = cutVol / dt;
-    // spill when bucket out of the ground
-    if (touching === 0 && this.load > 0) {
-      const my = after.mouth.y;
-      const cap = this.capacity * smoothstep(-0.45, 0.75, my) * 1.05;
-      if (this.load > cap) {
-        const ex = this.load - cap;
-        const out = Math.min(this.load, ex * Math.min(1, dt * 5) + 0.15 * dt);
-        this.load -= out;
-        const lip = after.tip.y < after.back.y ? after.tip : after.back;
-        const pv = new THREE.Vector3();
-        this.body.pointVel(lip, pv);
-        const swingV = new THREE.Vector3();
-        const om = new THREE.Vector3(0, this.w.swing, 0).applyQuaternion(this.body.quat);
-        swingV.crossVectors(om, lip.clone().sub(this.body.pos));
-        pv.add(swingV);
-        const P = lip.clone().addScaledVector(after.mouth, 0.15);
-        this.particles.emit(P.x, P.y, P.z, pv.x + after.mouth.x * 0.4, pv.y, pv.z + after.mouth.z * 0.4, out, this.loadType, 0.6);
-        this.pouring = out / dt;
-      } else this.pouring = 0;
-    } else this.pouring = 0;
-    if (this.load < 1e-4) this.load = 0;
+    this.pouring = 0;
     // engine demand
     const hydLoad = clamp(flow * 0.35 + this.pressure * 0.6 + travel * 0.2, 0, 1.2);
     this.throttle = inp.throttle ?? this.throttle;
@@ -711,15 +742,6 @@ export class Excavator extends Machine {
     void r;
     this.belts[0].update(-(this.beltActualL || 0) * dt);
     this.belts[1].update(-(this.beltActualR || 0) * dt);
-    // bucket contents
-    const f = this.load / this.capacity;
-    this.content.visible = f > 0.01;
-    this.content.scale.y = clamp(f, 0.02, 1);
-    this.heap.visible = f > 1.0;
-    const hf = clamp((f - 1) / 0.12, 0, 1);
-    this.heap.scale.set(0.6, 0.05 + 0.3 * hf, 0.65);
-    const col = [0x4f3a26, 0x7c5230, 0x77695a, 0x606060][Math.round(this.loadType)];
-    this.contentMat.color.setHex(col);
     this.beacon.material.emissiveIntensity = 0.5 + 0.8 * Math.max(0, Math.sin(performance.now() * 0.012));
     this.emitExhaust(dt);
   }

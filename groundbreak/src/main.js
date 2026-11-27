@@ -4,6 +4,7 @@ import { makeDetailTexture } from './textures.js';
 import { setupEnvironment } from './env.js';
 import { SoilParticles } from './particles.js';
 import { Clods } from './clods.js';
+import { SoilChunks } from './chunks.js';
 import { Excavator } from './excavator.js';
 import { Dozer } from './dozer.js';
 import { Truck } from './truck.js';
@@ -48,8 +49,60 @@ async function init() {
   ex.place(8, -1.5, 0);
   tr.place(13.6, -4.0, Math.PI, 1.15);
   dz.place(-12, -8, Math.PI + 0.6);
-  particles.receivers.push(tr);
   const machines = [ex, tr, dz];
+  const chunks = new SoilChunks(scene, terrain);
+  ex.chunks = chunks;
+  // ---- clod colliders: bucket shell, truck body, machine bodies, track/tyre crush zones ----
+  const boxColliders = [];
+  const mkBox = (machine, rec, crush, localC, localH) => {
+    const c = { kind: 'box', machine, crush, M: new THREE.Matrix4(), inv: new THREE.Matrix4(), h: localH || rec.h, aabb: new Float32Array(6), moving: true, mu: 0.6 };
+    const tmp = new THREE.Vector3(), pv = new THREE.Vector3(), bm = new THREE.Matrix4(), one = new THREE.Vector3(1, 1, 1), tr0 = new THREE.Matrix4();
+    c.update = (dt) => {
+      if (rec) c.M.copy(rec.matrixWorld);
+      else { bm.compose(machine.body.pos, machine.body.quat, one); c.M.multiplyMatrices(bm, tr0.makeTranslation(localC.x, localC.y, localC.z)); }
+      c.inv.copy(c.M).invert();
+      const o = tmp.setFromMatrixPosition(c.M), R = Math.hypot(c.h.x, c.h.y, c.h.z) + 0.2;
+      c.aabb.set([o.x - R, o.y - R, o.z - R, o.x + R, o.y + R, o.z + R]);
+      c.moving = machine.body.vel.lengthSq() > 1e-4 || machine.body.angVel.lengthSq() > 1e-5;
+      c._dt = dt;
+    };
+    c.motionAt = (x, y, z) => machine.body.pointVel(tmp.set(x, y, z), pv).multiplyScalar(c._dt);
+    boxColliders.push(c);
+    return c;
+  };
+  for (const m of machines) for (const b of m.boxes) {
+    if (b === ex.bucketBox || b === tr.bedBox) continue;
+    mkBox(m, b, false);
+  }
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  for (const s of [1, -1]) {
+    mkBox(ex, null, true, V(s * 1.19, -0.55, 0), V(0.33, 0.45, 2.25));
+    mkBox(dz, null, true, V(s * 0.99, -0.5, 0), V(0.3, 0.5, 1.7));
+  }
+  for (const w of tr.wheelDefs) mkBox(tr, null, true, V(w.x, -1.1 + 0.54, w.z), V(w.dual ? 0.34 : 0.17, 0.54, 0.45));
+  let chunkPhase = 0;
+  function chunkStep(dt) {
+    for (const m of machines) { m._chunkF.set(0, 0, 0); m._chunkT.set(0, 0, 0); }
+    const cols = [ex.bucketCollider(), tr.bedCollider()];
+    for (const m of machines) m.getCollisionBoxes();
+    for (const b of boxColliders) { b.update(dt); cols.push(b); }
+    chunks.step(dt, cols);
+    // what the clods are sitting in
+    const bk = chunks.volumeWhere(1); ex.load = bk.vol; ex.loadType = bk.type;
+    const bd = chunks.volumeWhere(2); tr.payloadVol = bd.vol; tr.payloadType = bd.type;
+  }
+  function physicsSubstep() {
+    for (let i = 0; i < machines.length; i++) for (let j = i + 1; j < machines.length; j++) collideMachines(machines[i], machines[j]);
+    for (const m of machines) {
+      bound(m);
+      // soil clods pressing on the bucket / truck body / blade
+      const f = m._chunkF, t = m._chunkT;
+      const cap = m.body.mass * 30;
+      if (f.length() < cap) { m.body.force.add(f); m.body.torque.add(t); }
+      m.step(DT); m.guard();
+    }
+    if ((chunkPhase++ & 1) === 1) chunkStep(2 * DT);
+  }
   for (const m of machines) { m.updateVisuals(0); m.refreshCollisionLocal(); }
 
   // design grades
@@ -136,7 +189,7 @@ async function init() {
     jobState.pitPct = done / need; jobState.pitVol = done * T.cellA;
     jobState.over = over * T.cellA; jobState.floorPct = floorOk / nPit;
     jobState.padPct = padOk / nPad; jobState.padVol = padVol;
-    jobState.hauled = tr.dumpedInPad;
+    jobState.hauled = chunks.padDumped;
     const bar = (f) => `<div class="bar"><i style="width:${(clamp(f, 0, 1) * 100).toFixed(1)}%"></i></div>`;
     const pitTotal = need * T.cellA;
     job.innerHTML = `
@@ -199,8 +252,7 @@ async function init() {
       acc += dt;
       let steps = 0;
       while (acc >= DT && steps < 30) {
-        for (let i = 0; i < machines.length; i++) for (let j = i + 1; j < machines.length; j++) collideMachines(machines[i], machines[j]);
-        for (const m of machines) { bound(m); m.step(DT); m.guard(); }
+        physicsSubstep();
         acc -= DT; steps++;
         // consume one-shot toggles after first substep
         for (const m of machines) if (m.inp) { m.inp.toggleSpeed = false; m.inp.park = false; }
@@ -210,6 +262,7 @@ async function init() {
       particles.update(dt);
     }
     for (const m of machines) { m.updateVisuals(dt); m.refreshCollisionLocal(); }
+    chunks.render();
     terrain.updateMesh();
 
     // ---- camera ----
@@ -286,12 +339,11 @@ async function init() {
     const n = Math.round(seconds * 240);
     for (let s = 0; s < n; s++) {
       if (s % 4 === 0) for (const m of machines) m.control(inpFor ? (inpFor(m, s / 240) || {}) : {}, 1 / 60);
-      for (let i = 0; i < machines.length; i++) for (let j = i + 1; j < machines.length; j++) collideMachines(machines[i], machines[j]);
-      for (const m of machines) { bound(m); m.step(DT); m.guard(); }
+      physicsSubstep();
       if (s % 4 === 3) { terrain.relax(1); particles.update(1 / 60); for (const m of machines) { m.updateVisuals(1 / 60); m.refreshCollisionLocal(); } }
     }
   }
-  window.__gb = { simulate, simTime: () => 0, terrain, machines, camera, scene, renderer, select, SOIL, cam, setCamMode: (m) => { camMode = m; },
+  window.__gb = { simulate, chunks, simTime: () => 0, terrain, machines, camera, scene, renderer, select, SOIL, cam, setCamMode: (m) => { camMode = m; },
     photo: (px, py, pz, lx, ly, lz, fov = 55) => { camMode = 'free'; camera.position.set(px, py, pz); camera.lookAt(lx, ly, lz); camera.fov = fov; camera.updateProjectionMatrix(); }, help };
   requestAnimationFrame(tick);
 }
