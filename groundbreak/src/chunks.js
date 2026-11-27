@@ -32,6 +32,7 @@ export class SoilChunks {
     this.sleep = new Float32Array(MAX); this.asleep = new Uint8Array(MAX);
     this.rot = new Float32Array(MAX * 4);
     this.where = new Uint8Array(MAX); // 0 ground/air, 1 bucket, 2 truck body
+    this.sx = new Float32Array(MAX); this.sy = new Float32Array(MAX); this.sz = new Float32Array(MAX); this.sn = new Float32Array(MAX);
     this.colliders = [];
     this.padDumped = 0;
     this.spawnCarry = 0;
@@ -176,6 +177,7 @@ export class SoilChunks {
    * Returns nothing; accumulates reaction forces into collider.machine._chunkF/_chunkT.
    */
   step(dt, colliders) {
+    this._dt = dt;
     const n = this.n;
     if (!n) { this._build(false); return; }
     const T = this.T;
@@ -201,6 +203,7 @@ export class SoilChunks {
     for (const c of colliders) { c._F = c._F || new THREE.Vector3(); c._F.set(0, 0, 0); c._Tq = c._Tq || new THREE.Vector3(); c._Tq.set(0, 0, 0); }
     const ITER = 3;
     this.where.fill(0, 0, n);
+    this.sx.fill(0, 0, n); this.sy.fill(0, 0, n); this.sz.fill(0, 0, n); this.sn.fill(0, 0, n);
     for (let it = 0; it < ITER; it++) {
       const last = it === ITER - 1;
       // clod-clod
@@ -227,6 +230,8 @@ export class SoilChunks {
             qx[i] += nx * pen * ai; qy[i] += ny * pen * ai; qz[i] += nz * pen * ai;
             qx[j] -= nx * pen * aj; qy[j] -= ny * pen * aj; qz[j] -= nz * pen * aj;
             if (last) {
+              this.sx[i] += vx[j]; this.sy[i] += vy[j]; this.sz[i] += vz[j]; this.sn[i]++;
+              this.sx[j] += vx[i]; this.sy[j] += vy[i]; this.sz[j] += vz[i]; this.sn[j]++;
               // position-level Coulomb friction
               let rx = (qx[i] - px[i]) - (qx[j] - px[j]), ry = (qy[i] - py[i]) - (qy[j] - py[j]), rz = (qz[i] - pz[i]) - (qz[j] - pz[j]);
               const rn = rx * nx + ry * ny + rz * nz;
@@ -249,7 +254,7 @@ export class SoilChunks {
         if (qy[i] - r[i] < h) {
           const pen = h - (qy[i] - r[i]);
           qy[i] += pen;
-          if (last) this._fric(i, pen, 0, 1, 0, 0, 0, 0, 0.8);
+          if (last) { this._fric(i, pen, 0, 1, 0, 0, 0, 0, 0.9); this.sn[i] += 2; }
         }
         for (const c of colliders) {
           const res = c.kind === 'bucket' ? this._bucket(i, c, last) : c.kind === 'bed' ? this._bed(i, c, last) : this._box(i, c, last);
@@ -262,6 +267,14 @@ export class SoilChunks {
     for (let i = 0; i < n; i++) {
       if (this.asleep[i]) { this.sleep[i] += dt; continue; }
       let nvx = (qx[i] - px[i]) * idt, nvy = (qy[i] - py[i]) * idt, nvz = (qz[i] - pz[i]) * idt;
+      // angular clods don't roll like marbles: motion relative to whatever they rest
+      // on (other clods, steel, ground) is strongly resisted
+      if (this.sn[i] > 0) {
+        const k = 1 / this.sn[i], sxv = this.sx[i] * k, syv = this.sy[i] * k, szv = this.sz[i] * k;
+        const keep = 0.72;
+        nvx = sxv + (nvx - sxv) * keep; nvz = szv + (nvz - szv) * keep;
+        if (nvy > syv) nvy = syv + (nvy - syv) * keep;
+      }
       // keep the solver from injecting energy on deep overlaps
       const sp = Math.sqrt(nvx * nvx + nvy * nvy + nvz * nvz);
       if (sp > 7) { const s = 7 / sp; nvx *= s; nvy *= s; nvz *= s; }
@@ -332,6 +345,8 @@ export class SoilChunks {
       // surface motion at the contact point
       const mv = c.motionAt(this.qx[i], this.qy[i], this.qz[i]);
       const f = this._fric(i, pen, nx, ny, nz, mv.x, mv.y, mv.z, c.mu ?? MU_K);
+      const idt = 1 / this._dt;
+      this.sx[i] += mv.x * idt * 2; this.sy[i] += mv.y * idt * 2; this.sz[i] += mv.z * idt * 2; this.sn[i] += 2;
       fx += f[0]; fy += f[1]; fz += f[2];
     }
     if (c.machine && !this.asleep[i]) {
