@@ -612,11 +612,41 @@ export class Excavator extends Machine {
     const center = after.tip.clone().add(after.back).multiplyScalar(0.5);
     const Mb = this.bucketMatrix(pose, new THREE.Matrix4());
     const Mbi = Mb.clone().invert(), mbe = Mbi.elements;
-    const accept = (x, y, z) => {
-      const lx = mbe[0] * x + mbe[4] * y + mbe[8] * z + mbe[12];
-      const ly = mbe[1] * x + mbe[5] * y + mbe[9] * z + mbe[13];
-      const lz = mbe[2] * x + mbe[6] * y + mbe[10] * z + mbe[14];
-      return Math.abs(lx) < S.bucketWidth / 2 - 0.05 && inBucketProfile(lz, ly) && ly > 0.06;
+    const mbw = Mb.elements;
+    const clearOk = (lx, ly, lz, r) => {
+      if (Math.abs(lx) > S.bucketWidth / 2 - r - 0.04 || !inBucketProfile(lz, ly)) return false;
+      // keep clear of the steel by the clod's own radius (plus plate thickness)
+      for (let s = 0; s < SHELL_COLLIDE.length - 1; s++) {
+        const [au, aw] = SHELL_COLLIDE[s], [bu, bw] = SHELL_COLLIDE[s + 1];
+        const eu = bu - au, ew = bw - aw;
+        let t = ((lz - au) * eu + (ly - aw) * ew) / (eu * eu + ew * ew);
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const du = lz - au - eu * t, dw = ly - aw - ew * t;
+        if (du * du + dw * dw < (r + 0.045) ** 2) return false;
+      }
+      return true;
+    };
+    // soil cut inside the bowl slides a few cm over the lip / off the plate into free space;
+    // soil on the outside of the shell never gets in (returns null -> shoved aside)
+    const accept = (x, y, z, r) => {
+      let lx = mbe[0] * x + mbe[4] * y + mbe[8] * z + mbe[12];
+      let ly = mbe[1] * x + mbe[5] * y + mbe[9] * z + mbe[13];
+      let lz = mbe[2] * x + mbe[6] * y + mbe[10] * z + mbe[14];
+      if (!inBucketProfile(lz, ly) || Math.abs(lx) > S.bucketWidth / 2) return null;
+      // candidate spots along the path the soil takes as it is forced into the bowl
+      // (incoming soil pushes earlier soil deeper in): toward the middle, then the back
+      const out = [];
+      const targets = [[0.72, 0.42], [0.42, 0.62]];
+      for (const [cu, cw] of targets) {
+        for (let k = 0; k < 9; k++) {
+          if (clearOk(lx, ly, lz, r)) out.push([mbw[0] * lx + mbw[4] * ly + mbw[8] * lz + mbw[12], mbw[1] * lx + mbw[5] * ly + mbw[9] * lz + mbw[13], mbw[2] * lx + mbw[6] * ly + mbw[10] * lz + mbw[14]]);
+          const du = cu - lz, dw = cw - ly, L = Math.hypot(du, dw);
+          if (L < 0.06) break;
+          lz += du / L * 0.06; ly += dw / L * 0.06;
+          lx *= 0.95;
+        }
+      }
+      return out.length ? out : null;
     };
     const spawnVel = moveDir.clone().multiplyScalar(moveLen / dt);
     // a bucket that isn't moving doesn't cut: soil that slumps against it just rests there

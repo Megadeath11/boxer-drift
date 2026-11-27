@@ -110,16 +110,21 @@ export class SoilChunks {
     let tries = 0;
     let rejected = 0;
     const cs = this.T.res;
-    while (left > 0 && tries < 12) {
+    while (left > 0 && tries < 28) {
       tries++;
       const r = 0.06 + 0.07 * Math.pow(Math.random(), 1.6);
       const v = SoilChunks.volFor(r);
-      if (v > left) { if (left < v * 0.5 || tries > 6) { this.spawnCarry = left; left = 0; break; } }
+      if (v > left) { if (left < v * 0.5 || tries > 20) { this.spawnCarry = left; left = 0; break; } }
       const sx = x + (Math.random() - 0.5) * cs, sz = z + (Math.random() - 0.5) * cs;
       const sy = lo + r + 0.02 + Math.random() * Math.max(0, top - lo - r);
-      if (!accept(sx, sy, sz)) { rejected += Math.min(v, left); left -= v; continue; }
-      if (!this.free(sx, sy, sz, r)) { rejected += Math.min(v, left); left -= v; continue; }
-      this.add(sx, sy, sz, vel.x, vel.y, vel.z, r, type);
+      const at = accept(sx, sy, sz, r);
+      const st = this.cutStats || (this.cutStats = { ok: 0, outside: 0, full: 0 });
+      if (!at) { st.outside += Math.min(v, left); rejected += Math.min(v, left); left -= v; continue; }
+      let spot = null;
+      for (const c of at) if (this.free(c[0], c[1], c[2], r)) { spot = c; break; }
+      if (!spot) { st.full += Math.min(v, left); rejected += Math.min(v, left); left -= v; continue; }
+      st.ok += v;
+      this.add(spot[0], spot[1], spot[2], vel.x, vel.y, vel.z, r, type);
       left -= v;
     }
     return rejected + Math.max(0, left);
@@ -259,7 +264,7 @@ export class SoilChunks {
       let nvx = (qx[i] - px[i]) * idt, nvy = (qy[i] - py[i]) * idt, nvz = (qz[i] - pz[i]) * idt;
       // keep the solver from injecting energy on deep overlaps
       const sp = Math.sqrt(nvx * nvx + nvy * nvy + nvz * nvz);
-      if (sp > 25) { const s = 25 / sp; nvx *= s; nvy *= s; nvz *= s; }
+      if (sp > 7) { const s = 7 / sp; nvx *= s; nvy *= s; nvz *= s; }
       // rolling tumble for rendering
       const hv = Math.hypot(nvx, nvz);
       if (hv > 0.02) {
