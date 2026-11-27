@@ -20,6 +20,12 @@ npm run package:mac       # macOS (run on a Mac)
 npm run package:linux
 ```
 
+## Auto-updating launcher
+
+If you cloned the repository, start the game with **`play.bat`** (Windows) or `./play.sh`
+(macOS/Linux) instead of `npm start`. Each launch pulls the latest version from GitHub, then starts
+the game, so new changes arrive automatically. Make a desktop shortcut to `play.bat` for one-click play.
+
 ## Run in a browser instead
 
 ```bash
